@@ -1,0 +1,12 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="前端-院方端 (5174)" type="js.build_tools.npm" factoryName="npm">
+    <package-json value="$PROJECT_DIR$/web-admin/package.json" />
+    <command value="run" />
+    <scripts>
+      <script value="dev:portal" />
+    </scripts>
+    <node-interpreter value="project" />
+    <envs />
+    <method v="2" />
+  </configuration>
+</component>

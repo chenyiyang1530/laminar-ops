@@ -1,0 +1,8 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="启动全部 (后端+双前端)" type="CompoundRunConfigurationType" factoryName="Compound">
+    <toRun name="后端 (8080)" type="SpringBootApplicationConfigurationType" />
+    <toRun name="前端-运维后台 (5173)" type="js.build_tools.npm" />
+    <toRun name="前端-院方端 (5174)" type="js.build_tools.npm" />
+    <method v="2" />
+  </configuration>
+</component>

@@ -1,0 +1,85 @@
+app:
+  demo-login-enabled: true
+  verification:
+    dev-mode: true
+    code-ttl-seconds: 300
+    cooldown-seconds: 60
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  config:
+    import:
+      - optional:file:./application-local.yml
+      - optional:file:./backend/application-local.yml
+  application:
+    name: laminar-ops
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3306/laminar_ops?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      timeout: 3000ms
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.laminar.ops.**.entity
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+laminar:
+  app:
+    version: 1.6.0
+  archive:
+    retention-months: 6
+  leave:
+    long-threshold-days: 3
+    handover-timeout-hours: 24
+  approval:
+    timeout-hours: 24
+    delegate-remind-days: 3
+  jwt:
+    secret: ${JWT_SECRET:}
+    expire-hours: 12
+  upload:
+    path: D:/ideaWork/laminar-ops/upload
+  web:
+    admin-dist: D:/ideaWork/laminar-ops/web-admin/dist
+    portal-dist: D:/ideaWork/laminar-ops/web-admin/dist-portal
+  cors:
+    allowed-origins: http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
+    # 允许本机/内网任意端口（Vite 端口递增、通过局域网 IP 访问时避免 CORS 403）
+    allowed-origin-patterns: "http://localhost:*,http://127.0.0.1:*,http://[::1]:*,http://192.168.*:*,http://10.*:*,http://172.*:*"
+
+logging:
+  level:
+    com.laminar.ops: info

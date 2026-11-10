@@ -1,0 +1,502 @@
+<template>
+  <div class="app-container">
+    <div class="page-card">
+      <div class="page-title">
+        <div>
+          <h2>{{ mine ? '我的工单' : '工单管理' }}</h2>
+          <div class="sub">报修 → 受理 → 派工 → 到场 → 完工 → 验收 → 回访 全流程闭环</div>
+        </div>
+        <el-button v-if="!mine && can('add')" type="primary" :icon="Plus" @click="openCreate">新建工单</el-button>
+      </div>
+
+      <div class="status-tabs">
+        <el-radio-group v-model="query.status" size="small" @change="search">
+          <el-radio-button label="open">进行中</el-radio-button>
+          <el-radio-button label="">全部</el-radio-button>
+          <el-radio-button label="0">待受理</el-radio-button>
+          <el-radio-button label="1">待派工</el-radio-button>
+          <el-radio-button label="2">处理中</el-radio-button>
+          <el-radio-button label="3">待验收</el-radio-button>
+          <el-radio-button label="4">待回访</el-radio-button>
+          <el-radio-button label="5">已完成</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <el-form inline class="search-form">
+        <el-form-item label="等级">
+          <el-select v-model="query.level" clearable placeholder="全部" style="width: 120px" @change="search">
+            <el-option v-for="d in dicts.level" :key="d.dictValue" :label="d.dictLabel" :value="d.dictValue" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="医院" v-if="!mine">
+          <el-select v-model="query.hospitalId" clearable placeholder="全部" style="width: 200px" @change="search">
+            <el-option v-for="h in hospitals" :key="h.value" :label="h.label" :value="h.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="关键字">
+          <el-input v-model="query.keyword" clearable placeholder="工单号 / 标题" style="width: 190px" @keyup.enter="search" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :icon="Search" @click="search">查询</el-button>
+          <el-button :icon="Refresh" @click="reset">重置</el-button>
+        </el-form-item>
+      </el-form>
+
+      <div class="list-tools-bar">
+        <ListTools
+          v-model="visibleCols"
+          :columns="workorderColumns"
+          :default-keys="workorderDefaultKeys"
+          :exporting="exporting"
+          @reset="resetCols"
+          @export="exportCsv"
+        />
+      </div>
+
+      <el-table v-loading="loading" :data="records" stripe>
+        <el-table-column type="index" label="序号" width="62" align="center" />
+        
+        <el-table-column v-if="isVisible('workorderNo')" prop="workorderNo" label="工单号" min-width="160" />
+        <el-table-column v-if="isVisible('title')" prop="title" label="标题" min-width="200" show-overflow-tooltip />
+        <el-table-column v-if="!mine && isVisible('hospitalName')" prop="hospitalName" label="医院" min-width="150" show-overflow-tooltip />
+        <el-table-column v-if="isVisible('companyName')" prop="companyName" label="承接公司" min-width="150" show-overflow-tooltip />
+        <el-table-column v-if="isVisible('equipmentName')" prop="equipmentName" label="设备" min-width="150" show-overflow-tooltip />
+        <el-table-column v-if="isVisible('faultLevel')" label="等级" min-width="80">
+          <template #default="{ row }">
+            <el-tag :type="levelType(row.faultLevel)" size="small" effect="dark">{{ levelText(row.faultLevel) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="isVisible('status')" label="状态" min-width="96">
+          <template #default="{ row }">
+            <el-tag :type="statusType(row.status)" size="small" effect="plain">{{ statusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="isVisible('engineerName')" prop="engineerName" label="工程师" min-width="100">
+          <template #default="{ row }">{{ row.engineerName || '—' }}</template>
+        </el-table-column>
+        <el-table-column v-if="isVisible('createTime')" prop="createTime" label="创建时间" min-width="150" />
+        <el-table-column label="操作" width="260" fixed="right">
+          <template #default="{ row }">
+            <el-button v-if="row.status === '0' && can('receive')" link type="primary" @click="receive(row)">受理</el-button>
+            <el-button v-if="row.status === '1' && can('dispatch')" link type="primary" @click="openDispatch(row)">派工</el-button>
+            <el-button v-if="['2','3','4'].includes(row.status) && can('dispatch')" link @click="openReassign(row)">改派</el-button>
+            <el-button v-if="row.status === '2' && can('arrive')" link type="warning" @click="arrive(row)">到场</el-button>
+            <el-button v-if="row.status === '2' && can('finish')" link type="success" @click="openFinish(row)">完工</el-button>
+            <el-button v-if="row.status === '3' && can('edit')" link type="success" @click="openAccept(row)">验收</el-button>
+            <el-button v-if="['2','3'].includes(row.status) && can('quote')" link @click="openQuote(row)">报价</el-button>
+            <el-button v-if="row.status === '4' && can('callback')" link type="primary" @click="openCallback(row)">回访</el-button>
+            <el-button link @click="openDetail(row)">详情</el-button>
+            <el-button v-if="['0','1'].includes(row.status) && can('cancel')" link type="danger" @click="cancel(row)">取消</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-pagination
+        v-model:current-page="query.pageNum"
+        v-model:page-size="query.pageSize"
+        :total="total"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="total, sizes, prev, pager, next"
+        class="pager"
+        @change="load"
+      />
+    </div>
+
+    <el-dialog v-model="createDialog" title="新建工单" width="640px">
+      <el-form :model="createForm" label-width="92px">
+        <el-row :gutter="14">
+          <el-col :span="12">
+            <el-form-item label="医院" required>
+              <el-select v-model="createForm.hospitalId" filterable :disabled="!!store.hospitalId" style="width: 100%" @change="onHospitalChange">
+                <el-option v-for="h in hospitals" :key="h.value" :label="h.label" :value="h.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="设备">
+              <el-select
+                v-model="createForm.equipmentId"
+                clearable
+                filterable
+                :disabled="!createForm.hospitalId"
+                :placeholder="createForm.hospitalId ? '请选择设备' : '请先选择医院'"
+                style="width: 100%"
+              >
+                <el-option v-for="e in equipments" :key="e.value" :label="e.label" :value="e.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="标题" required><el-input v-model="createForm.title" /></el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="故障等级">
+              <el-select v-model="createForm.faultLevel" style="width: 100%">
+                <el-option v-for="d in dicts.level" :key="d.dictValue" :label="d.dictLabel" :value="d.dictValue" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="故障描述"><el-input v-model="createForm.faultDesc" type="textarea" :rows="3" /></el-form-item>
+          </el-col>
+          <el-col :span="12"><el-form-item label="联系人"><el-input v-model="createForm.reportContact" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="联系电话"><el-input v-model="createForm.reportPhone" /></el-form-item></el-col>
+        </el-row>
+      </el-form>
+      <template #footer>
+        <el-button @click="createDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitCreate">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="dispatchDialog" :title="dispatchMode === 'reassign' ? '改派' : '派工'" width="480px">
+      <el-form label-width="80px">
+        <el-form-item label="工程师" required>
+          <el-select v-model="dispatchForm.engineerId" filterable style="width: 100%">
+            <el-option v-for="g in engineers" :key="g.value" :label="g.label" :value="g.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="说明"><el-input v-model="dispatchForm.remark" type="textarea" :rows="2" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dispatchDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitDispatch">{{ dispatchMode === 'reassign' ? '确认改派' : '确认派工' }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="finishDialog" title="完工提交" width="520px">
+      <el-form label-width="92px">
+        <el-form-item label="维修报告" required><el-input v-model="finishForm.report" type="textarea" :rows="4" /></el-form-item>
+        <el-form-item label="停机时长"><el-input-number v-model="finishForm.downtimeMinutes" :min="0" /> 分钟</el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="finishDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitFinish">提交验收</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="acceptDialog" title="工单验收" width="480px">
+      <el-form label-width="80px">
+        <el-form-item label="验收结果">
+          <el-radio-group v-model="acceptForm.result">
+            <el-radio value="1">通过</el-radio>
+            <el-radio value="0">驳回</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="验收意见"><el-input v-model="acceptForm.remark" type="textarea" :rows="2" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="acceptDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitAccept">确认</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="quoteDialog" title="提交报价" width="460px">
+      <el-form label-width="80px">
+        <el-form-item label="金额"><el-input-number v-model="quoteForm.amount" :min="0" :precision="2" style="width: 100%" /></el-form-item>
+        <el-form-item label="说明"><el-input v-model="quoteForm.remark" type="textarea" :rows="2" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="quoteDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitQuote">提交</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="callbackDialog" title="服务回访" width="460px">
+      <el-form label-width="80px">
+        <el-form-item label="满意度">
+          <el-rate v-model="callbackForm.score" />
+        </el-form-item>
+        <el-form-item label="回访内容"><el-input v-model="callbackForm.content" type="textarea" :rows="3" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="callbackDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitCallback">完成回访</el-button>
+      </template>
+    </el-dialog>
+
+    <el-drawer v-model="detailDrawer" size="640px" :title="detail?.workorder?.workorder_no || '工单详情'">
+      <div v-if="detail">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="标题" :span="2">{{ detail.workorder.title }}</el-descriptions-item>
+          <el-descriptions-item label="医院">{{ detail.workorder.hospital_name }}</el-descriptions-item>
+          <el-descriptions-item label="承接公司">{{ detail.workorder.company_name || '未匹配合同' }}</el-descriptions-item>
+          <el-descriptions-item label="设备">{{ detail.workorder.equipment_name || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="位置">{{ detail.workorder.campus_name }} / {{ detail.workorder.area_name }}</el-descriptions-item>
+          <el-descriptions-item label="工程师">{{ detail.workorder.engineer_name || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="状态">{{ statusText(detail.workorder.status) }}</el-descriptions-item>
+          <el-descriptions-item label="等级">{{ levelText(detail.workorder.fault_level) }}</el-descriptions-item>
+          <el-descriptions-item label="故障描述" :span="2">{{ detail.workorder.fault_desc || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="维修报告" :span="2">{{ detail.workorder.repair_report || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="报价">{{ detail.workorder.quote_amount ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="总费用">{{ detail.workorder.total_cost ?? '—' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <h4 class="sec">费用明细</h4>
+        <el-table :data="detail.costs" size="small">
+        <el-table-column type="index" label="序号" width="62" align="center" />
+        
+          <el-table-column prop="costName" label="项目" />
+          <el-table-column prop="costType" label="类型" width="90" />
+          <el-table-column prop="quantity" label="数量" width="70" />
+          <el-table-column prop="amount" label="金额" width="90" />
+        </el-table>
+
+        <h4 class="sec">流转记录</h4>
+        <el-timeline>
+          <el-timeline-item v-for="(l, i) in detail.logs" :key="i" :timestamp="l.createTime">
+            <div class="log-t">{{ actionText(l.action) }} · {{ l.operatorName }}</div>
+            <div class="log-c">{{ l.content }}</div>
+          </el-timeline-item>
+        </el-timeline>
+      </div>
+    </el-drawer>
+  </div>
+</template>
+
+<script setup>
+import { onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, Refresh, Plus } from '@element-plus/icons-vue'
+import ListTools from '@/components/ListTools.vue'
+import { useColumnPrefs } from '@/composables/useColumnPrefs'
+import { downloadCsv } from '@/utils/csv'
+import { useUserStore } from '@/store/user'
+import request from '@/utils/request'
+
+const props = defineProps({ mine: { type: Boolean, default: false } })
+const workorderColumns = [
+  { key: 'workorderNo', label: '工单号' },
+  { key: 'title', label: '标题' },
+  { key: 'hospitalName', label: '医院' },
+  { key: 'companyName', label: '承接公司' },
+  { key: 'equipmentName', label: '设备' },
+  { key: 'faultLevel', label: '等级' },
+  { key: 'status', label: '状态' },
+  { key: 'engineerName', label: '工程师' },
+  { key: 'createTime', label: '创建时间' }
+]
+const workorderDefaultKeys = workorderColumns.map((c) => c.key)
+const { visible: visibleCols, reset: resetCols } = useColumnPrefs(
+  `laminar_cols_workorder_${props.mine ? 'mine' : 'all'}`,
+  workorderDefaultKeys
+)
+const exporting = ref(false)
+const isVisible = (key) => visibleCols.value.includes(key)
+
+const store = useUserStore()
+const loading = ref(false)
+const records = ref([])
+const total = ref(0)
+const hospitals = ref([])
+const equipments = ref([])
+const engineers = ref([])
+const dicts = reactive({ level: [] })
+const query = reactive({ pageNum: 1, pageSize: store.pageSize || 10, status: 'open', level: undefined, hospitalId: undefined, keyword: undefined })
+const detailDrawer = ref(false)
+const detail = ref(null)
+const createDialog = ref(false)
+const createForm = reactive({ hospitalId: undefined, equipmentId: undefined, title: '', faultLevel: '2', faultDesc: '', reportContact: '', reportPhone: '' })
+const dispatchDialog = ref(false)
+const dispatchMode = ref('dispatch')
+const dispatchForm = reactive({ engineerId: undefined, remark: '' })
+const finishDialog = ref(false)
+const finishForm = reactive({ report: '', downtimeMinutes: 0 })
+const acceptDialog = ref(false)
+const acceptForm = reactive({ result: '1', remark: '' })
+const quoteDialog = ref(false)
+const quoteForm = reactive({ amount: 0, remark: '' })
+const callbackDialog = ref(false)
+const callbackForm = reactive({ score: 5, content: '' })
+const current = ref(null)
+
+const can = (p) => store.hasPerm('workorder:' + p)
+function statusText(s) { return { 0: '待受理', 1: '待派工', 2: '处理中', 3: '待验收', 4: '待回访', 5: '已完成', 6: '已取消' }[s] || s }
+function statusType(s) { return { 0: 'danger', 1: 'warning', 2: 'primary', 3: 'warning', 4: 'info', 5: 'success', 6: 'info' }[s] || 'info' }
+function levelText(l) { return { 0: 'P0 紧急', 1: 'P1 高', 2: 'P2 普通' }[l] || l }
+function levelType(l) { return { 0: 'danger', 1: 'warning', 2: 'primary' }[l] || 'info' }
+function actionText(a) { return { create: '创建', receive: '受理', dispatch: '派工', reassign: '改派', arrive: '到场', finish: '完工', accept: '验收', reject: '驳回', quote: '报价', callback: '回访', cancel: '取消' }[a] || a }
+
+async function load() {
+  loading.value = true
+  try {
+    const res = await request.get(props.mine ? '/workorder/my' : '/workorder/page', { params: query })
+    records.value = res.data.records
+    total.value = res.data.total
+  } finally {
+    loading.value = false
+  }
+}
+function search() { query.pageNum = 1; load() }
+
+async function exportCsv() {
+  exporting.value = true
+  try {
+    const res = await request.get(props.mine ? '/workorder/my' : '/workorder/page', {
+      params: { ...query, pageNum: 1, pageSize: 5000 }
+    })
+    const rows = res.data?.records || []
+    if (!rows.length) {
+      ElMessage.warning('当前筛选条件下没有数据')
+      return
+    }
+    const cols = workorderColumns.filter((c) => isVisible(c.key) && (c.key !== 'hospitalName' || !props.mine))
+    const headers = cols.map((c) => c.label)
+    const data = rows.map((row) => cols.map((c) => {
+      if (c.key === 'faultLevel') return levelText(row.faultLevel)
+      if (c.key === 'status') return statusText(row.status)
+      return row[c.key] ?? ''
+    }))
+    downloadCsv(`工单-${new Date().toISOString().slice(0, 10)}.csv`, headers, data)
+  } finally {
+    exporting.value = false
+  }
+}
+function reset() {
+  Object.assign(query, { pageNum: 1, status: 'open', level: undefined, hospitalId: undefined, keyword: undefined })
+  load()
+}
+
+function openCreate() {
+  Object.assign(createForm, {
+    hospitalId: store.hospitalId || undefined,
+    equipmentId: undefined,
+    title: '',
+    faultLevel: '2',
+    faultDesc: '',
+    reportContact: '',
+    reportPhone: ''
+  })
+  loadEquipments()
+  createDialog.value = true
+}
+
+async function loadEquipments() {
+  if (!createForm.hospitalId) {
+    equipments.value = []
+    return
+  }
+  const res = await request.get('/crud/equipment/options', { params: { hospitalId: createForm.hospitalId } })
+  equipments.value = res.data
+}
+
+function onHospitalChange() {
+  createForm.equipmentId = undefined
+  loadEquipments()
+}
+async function submitCreate() {
+  if (!createForm.hospitalId || !createForm.title) { ElMessage.warning('请填写医院与标题'); return }
+  await request.post('/workorder', createForm)
+  ElMessage.success('工单已创建')
+  createDialog.value = false
+  load()
+}
+
+async function receive(row) {
+  await ElMessageBox.confirm(`受理工单「${row.workorderNo}」？`, '提示', { type: 'warning' })
+  await request.post(`/workorder/${row.workorderId}/receive`)
+  ElMessage.success('已受理')
+  load()
+}
+
+function openDispatch(row) {
+  current.value = row
+  dispatchMode.value = 'dispatch'
+  dispatchForm.engineerId = undefined
+  dispatchForm.remark = ''
+  dispatchDialog.value = true
+}
+
+function openReassign(row) {
+  current.value = row
+  dispatchMode.value = 'reassign'
+  dispatchForm.engineerId = undefined
+  dispatchForm.remark = ''
+  dispatchDialog.value = true
+}
+
+async function submitDispatch() {
+  if (!dispatchForm.engineerId) { ElMessage.warning('请选择工程师'); return }
+  const url = dispatchMode.value === 'reassign'
+    ? `/workorder/${current.value.workorderId}/reassign`
+    : `/workorder/${current.value.workorderId}/dispatch`
+  await request.post(url, dispatchForm)
+  ElMessage.success(dispatchMode.value === 'reassign' ? '改派成功' : '派工成功')
+  dispatchDialog.value = false
+  load()
+}
+
+async function arrive(row) {
+  await request.post(`/workorder/${row.workorderId}/arrive`)
+  ElMessage.success('已签到')
+  load()
+}
+
+function openFinish(row) { current.value = row; finishForm.report = ''; finishForm.downtimeMinutes = 0; finishDialog.value = true }
+async function submitFinish() {
+  if (!finishForm.report.trim()) { ElMessage.warning('请填写维修报告'); return }
+  await request.post(`/workorder/${current.value.workorderId}/finish`, finishForm)
+  ElMessage.success('已提交验收')
+  finishDialog.value = false
+  load()
+}
+
+function openAccept(row) { current.value = row; acceptForm.result = '1'; acceptForm.remark = ''; acceptDialog.value = true }
+async function submitAccept() {
+  await request.post(`/workorder/${current.value.workorderId}/accept`, acceptForm)
+  ElMessage.success('验收已提交')
+  acceptDialog.value = false
+  load()
+}
+
+function openQuote(row) { current.value = row; quoteForm.amount = row.quoteAmount || 0; quoteForm.remark = ''; quoteDialog.value = true }
+async function submitQuote() {
+  await request.post(`/workorder/${current.value.workorderId}/quote`, quoteForm)
+  ElMessage.success('报价已提交')
+  quoteDialog.value = false
+  load()
+}
+
+function openCallback(row) { current.value = row; callbackForm.score = 5; callbackForm.content = ''; callbackDialog.value = true }
+async function submitCallback() {
+  await request.post(`/workorder/${current.value.workorderId}/callback`, callbackForm)
+  ElMessage.success('回访完成')
+  callbackDialog.value = false
+  load()
+}
+
+async function cancel(row) {
+  const { value } = await ElMessageBox.prompt('请输入取消原因', '取消工单', { inputType: 'textarea' })
+  await request.post(`/workorder/${row.workorderId}/cancel`, { reason: value })
+  ElMessage.success('已取消')
+  load()
+}
+
+async function openDetail(row) {
+  detailDrawer.value = true
+  const res = await request.get('/workorder/' + row.workorderId)
+  detail.value = res.data
+}
+
+onMounted(async () => {
+  const [h, g, d] = await Promise.all([
+    request.get('/crud/hospital/options'),
+    request.get('/crud/engineer/options'),
+    request.get('/system/dict/type/fault_level')
+  ])
+  hospitals.value = h.data
+  engineers.value = g.data
+  dicts.level = d.data
+  load()
+})
+</script>
+
+<style scoped>
+.list-tools-bar { display: flex; justify-content: flex-end; margin: 6px 0 8px; }
+.status-tabs { margin-bottom: 12px; }
+.search-form { margin-bottom: 4px; }
+.pager { margin-top: 14px; justify-content: flex-end; }
+.sec { margin: 20px 0 10px; font-size: 14px; color: #33465c; }
+.log-t { font-size: 13px; color: #2b3b50; }
+.log-c { font-size: 12px; color: #7a8ba0; margin-top: 3px; }
+</style>
