@@ -15,4 +15,5 @@ app-err.log
 *.bak
 .env
 application-local.yml
+.ssh/
 tools/ui-check/npm-cache/
