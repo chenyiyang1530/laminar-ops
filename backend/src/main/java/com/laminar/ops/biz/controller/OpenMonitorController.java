@@ -24,13 +24,13 @@ public class OpenMonitorController {
 
     private final MonitorService monitorService;
 
-    @Value("${laminar.monitor.token:laminar-gateway}")
+    @Value("${laminar.monitor.token:}")
     private String token;
 
     @PostMapping("/report")
     public Result<Integer> report(@RequestHeader(value = "X-Monitor-Token", required = false) String headerToken,
                                   @RequestBody Map<String, Object> body) {
-        if (!token.equals(headerToken)) {
+        if (token == null || token.isBlank() || !token.equals(headerToken)) {
             throw BizException.forbidden("设备接入 Token 无效");
         }
         Object value = body.get("value");

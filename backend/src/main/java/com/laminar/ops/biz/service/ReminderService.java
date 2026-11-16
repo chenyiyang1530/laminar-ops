@@ -33,7 +33,7 @@ public class ReminderService {
             long days = ChronoUnit.DAYS.between(LocalDate.now(), end);
             String key = "contract:" + c.get("contract_id") + ":" + days;
             n += jdbc.update("insert ignore into biz_message(msg_type,title,content,level,biz_type,biz_id,biz_key,receiver_id," +
-                            "receiver_role,hospital_id,company_id,is_read,create_time) values('contract',?,?,?,'contract',?,?,0,'100,101,200,201',?,?,'0',now())",
+                            "receiver_role,hospital_id,company_id,is_read,create_time) values('contract',?,?,?,'contract',?,?,0,'1,100,101,200,201',?,?,'0',now())",
                     "合同到期提醒：" + c.get("contract_name"),
                     "合同 " + c.get("contract_no") + " 将于 " + end + " 到期，剩余 " + days + " 天，请及时续签",
                     days <= 30 ? "1" : "2", c.get("contract_id"), key, c.get("hospital_id"), c.get("company_id"));

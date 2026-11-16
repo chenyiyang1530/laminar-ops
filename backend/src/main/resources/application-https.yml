@@ -1,0 +1,8 @@
+server:
+  port: ${HTTPS_PORT:8443}
+  ssl:
+    enabled: true
+    key-store: ${TLS_KEYSTORE:file:./certs/laminar-local.p12}
+    key-store-password: ${TLS_KEYSTORE_PASSWORD:changeit}
+    key-store-type: PKCS12
+    key-alias: ${TLS_KEY_ALIAS:laminar}

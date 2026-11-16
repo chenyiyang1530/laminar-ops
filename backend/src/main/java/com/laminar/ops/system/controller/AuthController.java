@@ -26,7 +26,13 @@ public class AuthController {
 
     @PostMapping("/login")
     public Result<Map<String, Object>> login(@RequestBody @Validated LoginBody body, HttpServletRequest request) {
-        return Result.ok(authService.login(body.getCompanyCode(), body.getUsername(), body.getPassword(), request));
+        return Result.ok(authService.login(body.getCompanyCode(), body.getUsername(), body.getPassword(),
+                body.getUuid(), body.getCode(), request));
+    }
+
+    @GetMapping("/captcha")
+    public Result<Map<String, Object>> captcha() {
+        return Result.ok(authService.captcha());
     }
 
     @GetMapping("/info")
@@ -37,6 +43,11 @@ public class AuthController {
     @PostMapping("/logout")
     public Result<Void> logout() {
         authService.logout(AuthContext.userId());
+        return Result.ok();
+    }
+
+    @GetMapping("/session/status")
+    public Result<Void> sessionStatus() {
         return Result.ok();
     }
 
@@ -59,6 +70,8 @@ public class AuthController {
         private String username;
         @NotBlank(message = "请输入密码")
         private String password;
+        private String uuid;
+        private String code;
     }
 
     @Data

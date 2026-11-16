@@ -9,6 +9,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @TableName("biz_hospital")
@@ -38,4 +39,10 @@ public class BizHospital {
 
     @TableField(exist = false)
     private String regionName;
+    @TableField(exist = false)
+    private String companyName;
+    @TableField(exist = false)
+    private String serviceCompanyNames;
+    @TableField(exist = false)
+    private List<Long> companyIds;
 }

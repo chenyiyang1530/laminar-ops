@@ -87,24 +87,14 @@ public class WorkorderController {
     @PostMapping("/{id}/finish")
     @Perm("workorder:finish")
     public Result<Void> finish(@PathVariable Long id, @RequestBody Map<String, Object> body) {
-        Object downtime = body.get("downtimeMinutes");
-        workorderService.finish(id, (String) body.get("report"),
-                downtime == null ? null : Integer.valueOf(String.valueOf(downtime)));
+        workorderService.finish(id, body);
         return Result.ok();
     }
 
     @PostMapping("/{id}/accept")
-    @Perm("workorder:edit")
+    @Perm("workorder:accept")
     public Result<Void> accept(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         workorderService.accept(id, String.valueOf(body.getOrDefault("result", "1")), (String) body.get("remark"));
-        return Result.ok();
-    }
-
-    @PostMapping("/{id}/quote")
-    @Perm("workorder:quote")
-    public Result<Void> quote(@PathVariable Long id, @RequestBody Map<String, Object> body) {
-        workorderService.quote(id, body.get("amount") == null ? null : new java.math.BigDecimal(String.valueOf(body.get("amount"))),
-                (String) body.get("remark"));
         return Result.ok();
     }
 

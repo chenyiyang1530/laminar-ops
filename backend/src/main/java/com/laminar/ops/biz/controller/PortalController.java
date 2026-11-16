@@ -9,6 +9,7 @@ import com.laminar.ops.common.BizException;
 import com.laminar.ops.common.Result;
 import com.laminar.ops.security.AuthContext;
 import com.laminar.ops.security.LoginUser;
+import com.laminar.ops.system.service.SysConfigService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,6 +37,7 @@ public class PortalController {
     private final AlarmService alarmService;
     private final WorkorderService workorderService;
     private final MessageService messageService;
+    private final SysConfigService sysConfig;
     private final JdbcTemplate jdbc;
 
     private Long hid() {
@@ -48,7 +50,9 @@ public class PortalController {
 
     @GetMapping("/dashboard")
     public Result<Map<String, Object>> dashboard() {
-        return Result.ok(dashboardService.overview(List.of(hid()), null));
+        LoginUser user = AuthContext.require();
+        Long departmentId = isDepartmentScoped(user) ? user.getDepartmentId() : null;
+        return Result.ok(dashboardService.overview(List.of(hid()), null, departmentId));
     }
 
     @GetMapping("/profile")
@@ -63,20 +67,69 @@ public class PortalController {
         result.put("nickName", user.getNickName());
         result.put("username", user.getUsername());
         result.put("departmentId", user.getDepartmentId());
+        result.put("pageSize", Math.max(1, sysConfig.intValue("platform.defaultPageSize", 10)));
+        if (user.getDepartmentId() != null) {
+            List<String> names = jdbc.queryForList(
+                    "select department_name from biz_department where department_id=?", String.class, user.getDepartmentId());
+            result.put("departmentName", names.isEmpty() ? null : names.get(0));
+        }
         result.putAll(hospital);
         return Result.ok(result);
     }
 
     @GetMapping("/monitor")
     public Result<Map<String, Object>> monitor() {
-        return Result.ok(monitorService.overview(List.of(hid())));
+        LoginUser user = AuthContext.require();
+        Long departmentId = isDepartmentScoped(user) ? user.getDepartmentId() : null;
+        return Result.ok(monitorService.overview(List.of(hid()), null, departmentId));
+    }
+
+    private boolean isDepartmentScoped(LoginUser user) {
+        return user.isHospitalUser() && user.getDepartmentId() != null
+                && (user.getRoleKeys().contains("hospital_sub_admin")
+                || user.getRoleKeys().contains("hospital_dept"));
     }
 
     @GetMapping("/equipment-options")
     public Result<List<Map<String, Object>>> equipmentOptions() {
+        LoginUser user = AuthContext.require();
+        Long departmentId = isDepartmentScoped(user) ? user.getDepartmentId() : null;
+        String sql = "select equipment_id as `value`, equipment_name as `label` from biz_equipment " +
+                "where hospital_id=? and status='0'";
+        if (departmentId != null) sql += " and department_id=?";
+        sql += " order by equipment_id";
+        return Result.ok(departmentId == null
+                ? jdbc.queryForList(sql, hid())
+                : jdbc.queryForList(sql, hid(), departmentId));
+    }
+
+    @GetMapping("/campus-options")
+    public Result<List<Map<String, Object>>> campusOptions() {
         return Result.ok(jdbc.queryForList(
-                "select equipment_id as `value`, equipment_name as `label` from biz_equipment " +
-                        "where hospital_id=? and status='0' order by equipment_id", hid()));
+                "select campus_id as `value`, campus_name as `label` from biz_campus " +
+                        "where hospital_id=? and status='0' order by campus_id", hid()));
+    }
+
+    @GetMapping("/department-options")
+    public Result<List<Map<String, Object>>> departmentOptions(
+            @RequestParam(required = false) Long campusId) {
+        LoginUser user = AuthContext.require();
+        Long departmentId = isDepartmentScoped(user) ? user.getDepartmentId() : null;
+        StringBuilder sql = new StringBuilder(
+                "select department_id as `value`, department_name as `label` from biz_department " +
+                        "where hospital_id=? and status='0'");
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(hid());
+        if (campusId != null) {
+            sql.append(" and campus_id=?");
+            args.add(campusId);
+        }
+        if (departmentId != null) {
+            sql.append(" and department_id=?");
+            args.add(departmentId);
+        }
+        sql.append(" order by department_id");
+        return Result.ok(jdbc.queryForList(sql.toString(), args.toArray()));
     }
 
     @GetMapping("/monitor/equipment/{id}")

@@ -1,6 +1,6 @@
 -- 多公司演示数据：福建阿斯兰（company_id=4）
--- 账号密码统一 123456
-SET @pwd = '8a571e9e0c92983528d524794b28dc8e1b48d5ccf4e0f9874a1d0cfd7f7869fa';
+-- 账号初始密码 Laminar@2026，首次登录需修改
+SET @pwd = 'ca74bf03c92496a050a7f4e5da2a2ba4cbfb890a99a4270b230e424f7e3be5b8';
 
 INSERT IGNORE INTO `sys_user` (`username`,`password`,`nick_name`,`phone`,`user_type`,`company_id`,`status`,`create_time`)
 VALUES ('ceo_asl', @pwd, '阿斯兰CEO', '13900000001', '1', 4, '0', NOW());
@@ -50,11 +50,6 @@ VALUES
 INSERT IGNORE INTO `biz_contract_scope` (`contract_id`,`scope_type`,`scope_value`)
 SELECT c.`contract_id`, 'department', 1 FROM `biz_contract` c WHERE c.`contract_no`='HT-ASL-2026-001';
 
-INSERT INTO `biz_budget` (`budget_year`,`budget_name`,`hospital_id`,`contract_id`,`company_id`,`subject`,`amount`,`used_amount`,`status`,`remark`,`create_time`)
-SELECT 2026, '阿斯兰手术室维保预算', 1, c.`contract_id`, 4, 'maintenance', 100000, 0, '0', '多公司演示预算', NOW()
-FROM `biz_contract` c WHERE c.`contract_no`='HT-ASL-2026-001'
-  AND NOT EXISTS (SELECT 1 FROM `biz_budget` b WHERE b.`budget_name`='阿斯兰手术室维保预算');
-
 INSERT INTO `biz_workorder`
 (`workorder_no`,`title`,`fault_desc`,`fault_level`,`status`,`source`,`service_type`,`hospital_id`,`department_id`,`equipment_id`,`company_id`,`engineer_id`,`create_time`)
 SELECT 'WO-ASL-DEMO-001','阿斯兰-手术室净化机组检修','多公司演示工单：手术室设备由阿斯兰承接','2','5','internal','0',1,1,1,4,e.`engineer_id`,NOW()
@@ -95,6 +90,6 @@ SELECT w.`workorder_id`, 'part', '高效过滤器', 2, 800, 1600, '多公司演�
 FROM `biz_workorder` w WHERE w.`workorder_no`='WO-ASL-DEMO-004'
   AND NOT EXISTS (SELECT 1 FROM `biz_workorder_cost` c WHERE c.`workorder_id`=w.`workorder_id` AND c.`cost_type`='part');
 
-UPDATE `biz_budget` SET `used_amount`=2800
-WHERE `budget_name`='阿斯兰手术室维保预算';
 
+
+UPDATE sys_user SET must_change_pwd=1 WHERE username IN ('ceo_asl','regional_asl','engineer_asl');

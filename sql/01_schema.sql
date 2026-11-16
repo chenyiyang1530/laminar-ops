@@ -1021,7 +1021,7 @@ CREATE TABLE IF NOT EXISTS `biz_part_requisition_item` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='备件领用明细';
 
 -- -------------------------------------------------------------
--- 文档 / 知识库 / 消息 / 预算
+-- 文档 / 知识库 / 消息
 -- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `biz_document` (
   `doc_id`       BIGINT       NOT NULL AUTO_INCREMENT,
@@ -1039,7 +1039,6 @@ CREATE TABLE IF NOT EXISTS `biz_document` (
   `uploader_id`  BIGINT       DEFAULT NULL,
   `uploader_name` VARCHAR(64) DEFAULT NULL,
   `upload_time`  DATETIME     DEFAULT NULL,
-  `tags`         VARCHAR(200) DEFAULT NULL,
   `remark`       VARCHAR(500) DEFAULT NULL,
   PRIMARY KEY (`doc_id`),
   KEY `idx_doc_hospital` (`hospital_id`)
@@ -1086,40 +1085,6 @@ CREATE TABLE IF NOT EXISTS `biz_message` (
   KEY `idx_msg_receiver` (`receiver_id`, `is_read`),
   KEY `idx_msg_time` (`create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='消息通知';
-
-CREATE TABLE IF NOT EXISTS `biz_budget` (
-  `budget_id`     BIGINT       NOT NULL AUTO_INCREMENT,
-  `budget_year`   INT          NOT NULL,
-  `budget_name`   VARCHAR(100) DEFAULT NULL,
-  `hospital_id`   BIGINT       DEFAULT NULL,
-  `contract_id`   BIGINT       DEFAULT NULL,
-  `company_id`    BIGINT       DEFAULT NULL,
-  `subject`       VARCHAR(30)  NOT NULL,
-  `amount`        DECIMAL(14,2) DEFAULT 0,
-  `used_amount`   DECIMAL(14,2) DEFAULT 0,
-  `status`        CHAR(1)      DEFAULT '0',
-  `remark`        VARCHAR(500) DEFAULT NULL,
-  `create_by`     VARCHAR(64)  DEFAULT NULL,
-  `create_time`   DATETIME     DEFAULT NULL,
-  `update_by`     VARCHAR(64)  DEFAULT NULL,
-  `update_time`   DATETIME     DEFAULT NULL,
-  PRIMARY KEY (`budget_id`),
-  KEY `idx_b_year` (`budget_year`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='预算';
-
-CREATE TABLE IF NOT EXISTS `biz_budget_execution` (
-  `exec_id`     BIGINT       NOT NULL AUTO_INCREMENT,
-  `budget_id`   BIGINT       NOT NULL,
-  `workorder_id` BIGINT      DEFAULT NULL,
-  `amount`      DECIMAL(12,2) NOT NULL,
-  `occur_date`  DATE         DEFAULT NULL,
-  `exec_type`   CHAR(1)      DEFAULT '1',
-  `remark`      VARCHAR(500) DEFAULT NULL,
-  `create_by`   VARCHAR(64)  DEFAULT NULL,
-  `create_time` DATETIME     DEFAULT NULL,
-  PRIMARY KEY (`exec_id`),
-  KEY `idx_be_budget` (`budget_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='预算执行';
 
 CREATE TABLE IF NOT EXISTS `biz_hospital_user` (
   `id`            BIGINT       NOT NULL AUTO_INCREMENT,

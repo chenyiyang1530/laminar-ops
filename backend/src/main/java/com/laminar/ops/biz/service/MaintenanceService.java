@@ -49,7 +49,8 @@ public class MaintenanceService {
             args.add("%" + keyword.trim() + "%");
         }
         java.util.List<Long> allowed = dataScope.visibleHospitalIds(user);
-        if (allowed != null) {
+        boolean selfEngineer = "self".equals(user.getDataScope()) && user.getEngineerId() != null;
+        if (allowed != null && !selfEngineer) {
             if (allowed.isEmpty()) {
                 where.append(" and 1=0 ");
             } else {
@@ -67,6 +68,11 @@ public class MaintenanceService {
             where.append(" and (t.assignee_id = ? or t.assignee_id is null) ");
             args.add(user.getEngineerId());
         }
+        if (user.isHospitalUser() && (user.getRoleKeys().contains("hospital_dept")
+                || user.getRoleKeys().contains("hospital_sub_admin")) && user.getDepartmentId() != null) {
+            where.append(" and t.department_id = ? ");
+            args.add(user.getDepartmentId());
+        }
         Long total = jdbc.queryForObject("select count(*) from biz_maintenance_task t" + where, Long.class, args.toArray());
         List<Object> pageArgs = new ArrayList<>(args);
         pageArgs.add(pageSize);
@@ -74,6 +80,7 @@ public class MaintenanceService {
         List<Map<String, Object>> records = jdbc.queryForList(
                 "select t.task_id as `taskId`, t.task_no as `taskNo`, t.plan_id as `planId`, t.plan_date as `planDate`, " +
                         "t.status, t.result, t.workorder_id as `workorderId`, t.finish_time as `finishTime`, " +
+                        "t.assignee_id as `assigneeId`, " +
                         "p.plan_name as `planName`, h.hospital_name as `hospitalName`, e.equipment_name as `equipmentName` " +
                         "from biz_maintenance_task t " +
                         "left join biz_maintenance_plan p on p.plan_id=t.plan_id " +
@@ -89,11 +96,10 @@ public class MaintenanceService {
     public Map<String, Object> detail(Long id) {
         Map<String, Object> task = jdbc.queryForMap(
                 "select t.*, p.plan_name as plan_name, h.hospital_name as hospital_name, e.equipment_name as equipment_name, " +
-                        "e.model as equipment_model, a.area_name as area_name " +
+                        "e.model as equipment_model " +
                         "from biz_maintenance_task t left join biz_maintenance_plan p on p.plan_id=t.plan_id " +
                         "left join biz_hospital h on h.hospital_id=t.hospital_id " +
-                        "left join biz_equipment e on e.equipment_id=t.equipment_id " +
-                        "left join biz_clean_area a on a.area_id=e.area_id where t.task_id=?", id);
+                        "left join biz_equipment e on e.equipment_id=t.equipment_id where t.task_id=?", id);
         checkAccess(task);
         List<Map<String, Object>> items = jdbc.queryForList(
                 "select item_id as `itemId`, item_name as `itemName`, standard, result, item_value as `itemValue`, remark, sort " +
@@ -106,6 +112,7 @@ public class MaintenanceService {
 
     public void start(Long id) {
         Map<String, Object> task = require(id);
+        checkExecutor(task, "保养");
         String s = String.valueOf(task.get("status"));
         if (!List.of("0", "3").contains(s)) throw BizException.badRequest("只有待执行/已逾期任务可以开始");
         jdbc.update("update biz_maintenance_task set status='1', start_time=coalesce(start_time, now()) where task_id=?", id);
@@ -114,6 +121,7 @@ public class MaintenanceService {
     @Transactional
     public Long complete(Long id, Map<String, Object> body) {
         Map<String, Object> task = require(id);
+        checkExecutor(task, "保养");
         String status = String.valueOf(task.get("status"));
         if (!List.of("0", "1", "3").contains(status)) throw BizException.badRequest("任务已结束");
         String result = String.valueOf(body.getOrDefault("result", "1"));
@@ -135,7 +143,7 @@ public class MaintenanceService {
         if ("0".equals(result) && Boolean.parseBoolean(String.valueOf(body.get("createWorkorder")))) {
             workorderId = workorderService.createInternal("maintenance", id,
                     longOrNull(task.get("hospital_id")), longOrNull(task.get("campus_id")),
-                    longOrNull(task.get("department_id")), null,
+                    longOrNull(task.get("department_id")),
                     longOrNull(task.get("equipment_id")), "保养异常：" + task.get("task_no"), content);
             jdbc.update("update biz_maintenance_task set workorder_id=? where task_id=?", workorderId, id);
             jdbc.update("update biz_workorder set maintenance_task_id=? where workorder_id=?", id, workorderId);
@@ -152,16 +160,28 @@ public class MaintenanceService {
             LocalDate planDate = InspectionService.toLocalDate(plan.get("next_run_date"));
             if (planDate == null) planDate = LocalDate.now();
             if (planDate.isBefore(LocalDate.now())) planDate = LocalDate.now();
-            Integer exists = jdbc.queryForObject("select count(*) from biz_maintenance_task where plan_id=? and plan_date=?",
-                    Integer.class, plan.get("plan_id"), planDate);
-            if (exists == null || exists == 0) {
+            List<Long> equipmentIds = jdbc.queryForList(
+                    "select equipment_id from biz_maintenance_plan_equipment where plan_id=? order by id",
+                    Long.class, plan.get("plan_id"));
+            if (equipmentIds.isEmpty() && plan.get("equipment_id") != null) {
+                equipmentIds = List.of(((Number) plan.get("equipment_id")).longValue());
+            }
+            if (equipmentIds.isEmpty()) equipmentIds = java.util.Collections.singletonList(null);
+            for (Long equipmentId : equipmentIds) {
+                Integer exists = equipmentId == null
+                        ? jdbc.queryForObject("select count(*) from biz_maintenance_task where plan_id=? and plan_date=? and equipment_id is null",
+                        Integer.class, plan.get("plan_id"), planDate)
+                        : jdbc.queryForObject("select count(*) from biz_maintenance_task where plan_id=? and plan_date=? and equipment_id=?",
+                        Integer.class, plan.get("plan_id"), planDate, equipmentId);
+                if (exists != null && exists > 0) continue;
                 try {
                     String no = nextNo(planDate);
-                    Long taskId = insertTask(no, plan, planDate);
+                    Long taskId = insertTask(no, plan, planDate, equipmentId);
                     createItems(taskId, (String) plan.get("content"));
                     created++;
                 } catch (org.springframework.dao.DuplicateKeyException e) {
-                    log.warn("[保养] 任务编号冲突，跳过 plan={} date={}", plan.get("plan_id"), planDate);
+                    log.warn("[保养] 任务编号冲突，跳过 plan={} date={} equipment={}",
+                            plan.get("plan_id"), planDate, equipmentId);
                 }
             }
             jdbc.update("update biz_maintenance_plan set next_run_date=? where plan_id=?",
@@ -172,7 +192,7 @@ public class MaintenanceService {
         return created;
     }
 
-    private Long insertTask(String no, Map<String, Object> plan, LocalDate planDate) {
+    private Long insertTask(String no, Map<String, Object> plan, LocalDate planDate, Long equipmentId) {
         KeyHolder holder = new GeneratedKeyHolder();
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement(
@@ -185,7 +205,7 @@ public class MaintenanceService {
             ps.setObject(4, plan.get("hospital_id"));
             ps.setObject(5, plan.get("campus_id"));
             ps.setObject(6, plan.get("department_id"));
-            ps.setObject(7, plan.get("equipment_id"));
+            ps.setObject(7, equipmentId);
             ps.setObject(8, planDate);
             ps.setObject(9, plan.get("assignee_id"));
             return ps;
@@ -213,10 +233,25 @@ public class MaintenanceService {
         return task;
     }
 
+    private void checkExecutor(Map<String, Object> task, String typeName) {
+        LoginUser user = AuthContext.require();
+        if (user.isSuperAdmin()) return;
+        Object assignee = task.get("assignee_id");
+        if (assignee == null) return;
+        Long engineerId = user.getEngineerId();
+        if (engineerId == null || !engineerId.equals(((Number) assignee).longValue())) {
+            throw BizException.forbidden("只能执行分配给本人的" + typeName + "任务");
+        }
+    }
+
     private void checkAccess(Map<String, Object> task) {
         LoginUser user = AuthContext.require();
+        Object assignee = task.get("assignee_id");
+        Long engineerId = user.getEngineerId();
+        boolean selfAssigned = "self".equals(user.getDataScope()) && engineerId != null
+                && assignee != null && engineerId.equals(((Number) assignee).longValue());
         Object hospital = task.get("hospital_id");
-        if (hospital != null && !dataScope.canAccessHospital(user, ((Number) hospital).longValue())) {
+        if (!selfAssigned && hospital != null && !dataScope.canAccessHospital(user, ((Number) hospital).longValue())) {
             throw BizException.forbidden("无权操作其他医院任务");
         }
         Long companyId = dataScope.companyId(user);
@@ -224,9 +259,15 @@ public class MaintenanceService {
                 && !companyId.equals(((Number) task.get("company_id")).longValue())) {
             throw BizException.forbidden("无权操作其他公司保养任务");
         }
-        if ("self".equals(user.getDataScope()) && user.getEngineerId() != null) {
-            Object assignee = task.get("assignee_id");
-            if (assignee != null && !user.getEngineerId().equals(((Number) assignee).longValue())) {
+        if (user.isHospitalUser() && (user.getRoleKeys().contains("hospital_dept")
+                || user.getRoleKeys().contains("hospital_sub_admin")) && user.getDepartmentId() != null
+                && task.get("department_id") != null
+                && !user.getDepartmentId().equals(((Number) task.get("department_id")).longValue())) {
+            throw BizException.forbidden("只能查看本科室的保养任务");
+        }
+        if ("self".equals(user.getDataScope()) && engineerId != null) {
+            Object assigned = task.get("assignee_id");
+            if (assigned != null && !engineerId.equals(((Number) assigned).longValue())) {
                 throw BizException.forbidden("只能执行分配给本人的保养任务");
             }
         }

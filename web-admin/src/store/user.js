@@ -23,6 +23,8 @@ export const useUserStore = defineStore('user', {
   }),
   getters: {
     isSuperAdmin: (s) => s.roles.includes('super_admin'),
+    isHospitalUser: (s) => s.user?.userType === 'hospital'
+      || s.roles.includes('hospital_admin') || s.roles.includes('hospital_dept'),
     displayName: (s) => s.user?.nickName || s.user?.username || ''
   },
   actions: {

@@ -1,6 +1,7 @@
 package com.laminar.ops.common;
 
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
@@ -13,7 +14,10 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @Slf4j
 @RestControllerAdvice
+@RequiredArgsConstructor
 public class GlobalExceptionHandler {
+
+    private final SystemAlertService systemAlertService;
 
     @ExceptionHandler(BizException.class)
     public Result<Void> handleBiz(BizException e, HttpServletRequest request) {
@@ -61,6 +65,10 @@ public class GlobalExceptionHandler {
     public Result<Void> handleException(Exception e, HttpServletRequest request) {
         log.error("系统异常", e);
         markError(request, 500, e.getMessage());
+        String path = request == null ? "-" : request.getMethod() + " " + request.getRequestURI();
+        systemAlertService.error(request == null ? "unknown" : request.getRequestURI(),
+                "系统异常告警",
+                path + "\n" + e.getClass().getSimpleName() + ": " + e.getMessage());
         return Result.fail(500, "系统异常：" + e.getMessage());
     }
 

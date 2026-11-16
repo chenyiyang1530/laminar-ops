@@ -23,10 +23,11 @@
 import { onMounted, reactive, ref } from 'vue'
 import { Check } from '@element-plus/icons-vue'
 import request from '@/request'
+import { store } from '@/store'
 
 const records = ref([])
 const total = ref(0)
-const query = reactive({ pageNum: 1, pageSize: 10 })
+const query = reactive({ pageNum: 1, pageSize: store.profile?.pageSize || 10 })
 const typeText = (t) => ({ alarm: '告警', workorder: '工单', inspection: '巡检', maintenance: '保养', cert: '证书', contract: '合同', budget: '预算', system: '系统' }[t] || t)
 
 async function load() {

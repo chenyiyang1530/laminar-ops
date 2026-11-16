@@ -9,7 +9,7 @@
         <div class="page-actions">
           <el-button v-if="records.length" link @click="expandAll">全部展开</el-button>
           <el-button v-if="records.length" link @click="collapseAll">全部收起</el-button>
-          <el-button v-if="isSuper" type="primary" :icon="Plus" @click="openAdd">发布新版本</el-button>
+          <el-button v-if="canEdit" type="primary" :icon="Plus" @click="openAdd">发布新版本</el-button>
         </div>
       </div>
 
@@ -31,7 +31,7 @@
               <div class="head-right">
                 <span class="expand-text">{{ isExpanded(item) ? '收起' : '展开' }}</span>
                 <el-icon class="chevron" :class="{ rotated: isExpanded(item) }"><ArrowDown /></el-icon>
-                <div class="release-actions" v-if="isSuper" @click.stop>
+                <div class="release-actions" v-if="canEdit" @click.stop>
                   <el-button link type="primary" @click="openEdit(item)">编辑</el-button>
                   <el-button link type="danger" @click="remove(item)">删除</el-button>
                 </div>
@@ -114,7 +114,7 @@ import request from '@/utils/request'
 import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
-const isSuper = computed(() => store.isSuperAdmin)
+const canEdit = computed(() => store.isSuperAdmin || store.hasPerm('system:release:edit'))
 const records = ref([])
 const dialog = ref(false)
 const saving = ref(false)
@@ -230,3 +230,4 @@ onMounted(async () => {
 .build-info { margin-top: 18px; padding-top: 12px; border-top: 1px solid #eef2f7; font-size: 11px; color: #93a1b5; }
 .build-info.error { color: #e6a23c; }
 </style>
+

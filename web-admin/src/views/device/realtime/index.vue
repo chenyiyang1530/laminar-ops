@@ -13,10 +13,16 @@
     </div>
 
     <div class="filter-bar">
-      <el-select v-model="hospitalId" clearable placeholder="全部医院" style="width: 220px" @change="load">
+      <el-select v-model="hospitalId" clearable placeholder="全部医院" style="width: 190px" @change="onHospitalChange">
         <el-option v-for="h in hospitals" :key="h.value" :label="h.label" :value="h.value" />
       </el-select>
-      <el-input v-model="keyword" clearable placeholder="搜索设备名称 / 区域" style="width: 220px; margin-left: 10px" />
+      <el-select v-model="campusId" clearable placeholder="全部院区" style="width: 150px; margin-left: 10px" :disabled="!hospitalId" @change="onCampusChange">
+        <el-option v-for="c in campuses" :key="c.value" :label="c.label" :value="c.value" />
+      </el-select>
+      <el-select v-model="departmentId" clearable placeholder="全部科室" style="width: 150px; margin-left: 10px" :disabled="!campusId" @change="load">
+        <el-option v-for="d in departments" :key="d.value" :label="d.label" :value="d.value" />
+      </el-select>
+      <el-input v-model="keyword" clearable placeholder="搜索名称 / 编号 / 类型 / 区域" style="width: 220px; margin-left: 10px" />
       <el-switch v-model="auto" active-text="自动刷新" style="margin-left: 16px" />
       <el-button :icon="Refresh" style="margin-left: 10px" @click="load">刷新</el-button>
       <span class="updated" v-if="updatedAt">最近更新 {{ updatedAt }}</span>
@@ -35,13 +41,13 @@
           <span class="name">{{ m.equipment_name }}</span>
           <el-tag size="small" effect="plain" class="type">{{ m.type_name || '设备' }}</el-tag>
         </div>
-        <div class="loc">{{ m.hospital_name }} · {{ m.campus_name }} · {{ m.area_name }}</div>
+        <div class="loc">{{ m.hospital_name }} · {{ m.campus_name }} · {{ m.department_name }}</div>
         <div class="metrics">
-          <div v-for="mt in (m.metrics || []).slice(0, 4)" :key="mt.pointId" class="metric">
-            <div class="mv" :class="{ muted: mt.value === undefined }">
-              {{ mt.value === undefined ? '--' : mt.value }}<small>{{ mt.unit }}</small>
+          <div v-for="slot in metricSlots(m)" :key="slot.metric" class="metric">
+            <div class="mv" :class="{ muted: slot.value == null }">
+              {{ slot.value == null ? '--' : slot.value }}<small>{{ slot.unit }}</small>
             </div>
-            <div class="ml">{{ metricName(mt.metric) }}</div>
+            <div class="ml">{{ slot.label }}</div>
           </div>
         </div>
         <div class="eq-foot">
@@ -56,7 +62,7 @@
       <div v-if="detail" class="detail">
         <div class="d-head">
           <div>
-            <div class="d-loc">{{ detail.equipment.hospital_name }} · {{ detail.equipment.campus_name }} · {{ detail.equipment.area_name }}</div>
+            <div class="d-loc">{{ detail.equipment.hospital_name }} · {{ detail.equipment.campus_name }} · {{ detail.equipment.department_name }}</div>
             <div class="d-sub">编号 {{ detail.equipment.equipment_code }} · 型号 {{ detail.equipment.model || '—' }} · {{ detail.equipment.type_name }}</div>
           </div>
           <el-tag :type="detail.equipment.run_status === '2' ? 'danger' : 'success'">
@@ -98,6 +104,10 @@ const list = ref([])
 const summary = ref({})
 const hospitals = ref([])
 const hospitalId = ref()
+const campuses = ref([])
+const campusId = ref()
+const departments = ref([])
+const departmentId = ref()
 const keyword = ref('')
 const auto = ref(true)
 const updatedAt = ref('')
@@ -118,23 +128,68 @@ const metricMap = {
   run_state: '运行状态'
 }
 function metricName(m) { return metricMap[m] || m }
+const displayMetrics = [
+  { metric: 'temperature', label: '温度', unit: '℃' },
+  { metric: 'humidity', label: '湿度', unit: '%RH' },
+  { metric: 'pressure', label: '压差', unit: 'Pa' },
+  { metric: 'wind_speed', label: '风速', unit: 'm/s' }
+]
+function metricSlots(m) {
+  const list = m.metrics || []
+  return displayMetrics.map((def) => {
+    const point = list.find((p) => p.metric === def.metric)
+    return {
+      ...def,
+      unit: point?.unit || def.unit,
+      value: point?.value
+    }
+  })
+}
 
 const filtered = computed(() => {
-  const kw = keyword.value.trim()
+  const kw = keyword.value.trim().toLowerCase()
   if (!kw) return list.value
-  return list.value.filter((m) => (m.equipment_name + m.area_name + m.hospital_name).includes(kw))
+  return list.value.filter((m) => [
+    m.equipment_code,
+    m.equipment_name,
+    m.department_name,
+    m.hospital_name,
+    m.campus_name,
+    m.type_name,
+    m.install_location
+  ].filter(Boolean).join(' ').toLowerCase().includes(kw))
 })
 
 async function load() {
   loading.value = true
   try {
-    const res = await request.get('/monitor/overview', { params: { hospitalId: hospitalId.value } })
+    const res = await request.get('/monitor/overview', {
+      params: { hospitalId: hospitalId.value, campusId: campusId.value, departmentId: departmentId.value }
+    })
     list.value = res.data.list
     summary.value = res.data.summary
     updatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   } finally {
     loading.value = false
   }
+}
+
+async function onHospitalChange() {
+  campusId.value = undefined
+  departmentId.value = undefined
+  departments.value = []
+  campuses.value = hospitalId.value
+    ? ((await request.get('/crud/campus/options', { params: { hospitalId: hospitalId.value } })).data || [])
+    : []
+  await load()
+}
+
+async function onCampusChange() {
+  departmentId.value = undefined
+  departments.value = campusId.value
+    ? ((await request.get('/crud/department/options', { params: { campusId: campusId.value } })).data || [])
+    : []
+  await load()
 }
 
 async function open(row) {

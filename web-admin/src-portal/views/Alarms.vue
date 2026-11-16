@@ -52,10 +52,11 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import request from '@/request'
+import { store } from '@/store'
 
 const records = ref([])
 const total = ref(0)
-const query = reactive({ pageNum: 1, pageSize: 10, status: 'open' })
+const query = reactive({ pageNum: 1, pageSize: store.profile?.pageSize || 10, status: 'open' })
 const drawer = ref(false)
 const detail = ref(null)
 const levelText = (l) => ({ 1: '紧急', 2: '重要', 3: '一般', 4: '提示' }[l] || '一般')

@@ -29,8 +29,11 @@ public class CertificateTypeService {
                 "select dict_value as `value` from sys_dict_data " +
                         "where dict_type='cert_type' and status='0' and (dict_value=? or dict_label=?) limit 1",
                 value, value);
-        if (!dict.isEmpty()) body.put("certType", String.valueOf(dict.get(0).get("value")));
-        else body.put("certType", value);
+        if (!dict.isEmpty()) {
+            body.put("certType", String.valueOf(dict.get(0).get("value")));
+        } else {
+            throw BizException.badRequest("请选择标准证书类型");
+        }
     }
 
     /** 证书保存成功后再登记新类型申请，避免保存失败留下脏申请。 */

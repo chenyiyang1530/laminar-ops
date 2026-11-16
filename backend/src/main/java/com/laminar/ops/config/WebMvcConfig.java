@@ -42,6 +42,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/api/auth/captcha",
                         "/api/public/**",
                         "/api/open/**",
+                        "/api/common/signed-file",
                         "/error"
                 );
         registry.addInterceptor(operLogInterceptor)
@@ -68,8 +69,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        registry.addResourceHandler("/upload/**")
-                .addResourceLocations("file:" + (uploadPath.endsWith("/") ? uploadPath : uploadPath + "/"));
         registry.addResourceHandler("/app/**")
                 .addResourceLocations("file:" + (adminDist.endsWith("/") ? adminDist : adminDist + "/"))
                 .setCacheControl(CacheControl.noCache());

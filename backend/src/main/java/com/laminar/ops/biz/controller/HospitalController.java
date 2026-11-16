@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/customer/hospital")
@@ -44,6 +45,12 @@ public class HospitalController {
     @Perm("customer:hospital:list")
     public Result<BizHospital> detail(@PathVariable Long id) {
         return Result.ok(hospitalService.detail(id));
+    }
+
+    @GetMapping("/{id}/manager-options")
+    @Perm("customer:contract:list")
+    public Result<List<Map<String, Object>>> managerOptions(@PathVariable Long id) {
+        return Result.ok(hospitalService.managerOptions(id));
     }
 
     @PostMapping

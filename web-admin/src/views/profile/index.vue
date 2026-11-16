@@ -46,7 +46,10 @@
                 v-if="!c.verified"
                 v-model="targets[c.type]"
                 :placeholder="c.type === 'phone' ? '请输入手机号' : '请输入邮箱'"
+                :maxlength="c.type === 'phone' ? 11 : 100"
+                :inputmode="c.type === 'phone' ? 'numeric' : 'email'"
                 clearable
+                @input="(v) => (targets[c.type] = c.type === 'phone' ? String(v || '').replace(/\D/g, '').slice(0, 11) : v)"
               />
               <div v-else class="pref-desc">{{ c.value }}</div>
             </div>
@@ -205,6 +208,14 @@ function initTargets() {
 async function sendCode(type) {
   if (!targets[type]) {
     ElMessage.warning(type === 'phone' ? '请输入手机号' : '请输入邮箱')
+    return
+  }
+  if (type === 'phone' && !/^1[3-9]\d{9}$/.test(targets[type])) {
+    ElMessage.warning('请输入11位手机号')
+    return
+  }
+  if (type === 'email' && !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(targets[type])) {
+    ElMessage.warning('邮箱格式不正确')
     return
   }
   try {

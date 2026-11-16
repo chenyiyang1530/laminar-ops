@@ -12,15 +12,22 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import CrudPage from '@/components/CrudPage.vue'
 import RequisitionPage from '@/views/resource/requisition/index.vue'
 import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
+const route = useRoute()
 const canPart = computed(() => store.hasPerm('resource:part:list'))
 const canRequisition = computed(() => store.hasPerm('resource:requisition:list'))
-const active = ref(canPart.value ? 'part' : 'requisition')
+function pickTab(tab) {
+  if (tab === 'requisition' && canRequisition.value) return 'requisition'
+  return canPart.value ? 'part' : 'requisition'
+}
+const active = ref(pickTab(route.query.tab))
+watch(() => route.query.tab, (tab) => { active.value = pickTab(tab) })
 </script>
 
 <style scoped>

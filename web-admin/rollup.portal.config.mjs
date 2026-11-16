@@ -14,12 +14,12 @@ const html = `<!DOCTYPE html>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>医院洁净设备运维协同平台</title>
-    <link rel="stylesheet" href="${base}index.css?v=20261029" />
+    <link rel="stylesheet" href="${base}index.css?v=20261115" />
   </head>
   <body>
     <div id="app"></div>
     <script>window.__APP_BASE__='${base}'</script>
-    <script type="module" src="${base}assets/main.js?v=20261029"></script>
+    <script type="module" src="${base}assets/main.js?v=20261115"></script>
   </body>
 </html>`
 

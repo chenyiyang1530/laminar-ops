@@ -2,15 +2,18 @@
   <div class="login-page">
     <div class="brand-panel">
       <div class="brand-top">
-        <div class="brand-mark">LO</div>
+        <div class="brand-mark">
+          <img v-if="platform.logo" :src="platform.logo" alt="logo" />
+          <span v-else>LO</span>
+        </div>
         <div>
-          <div class="brand-name">层流净化设备智能运维平台</div>
+          <div class="brand-name">{{ platform.name }}</div>
           <div class="brand-en">Laminar Purification Intelligent O&M Platform</div>
         </div>
       </div>
       <div class="brand-body">
         <h1>让每一间洁净手术室<br /><span>始终处于受控状态</span></h1>
-        <p>多医院 · 多院区 · 多科室 · 洁净区域全生命周期监测与运维闭环</p>
+        <p>多医院 · 多院区 · 多科室全生命周期监测与运维闭环</p>
         <ul>
           <li><el-icon><Monitor /></el-icon> 层流机组 / 净化空调 / 新风 / 除湿 / 供氧 / 负压在线监测</li>
           <li><el-icon><Warning /></el-icon> 告警分级、确认、消缺、全链路追溯</li>
@@ -20,7 +23,7 @@
       </div>
       <div class="brand-stats">
         <div><b>3</b><span>合作医院</span></div>
-        <div><b>8</b><span>洁净区域</span></div>
+        <div><b>8</b><span>科室</span></div>
         <div><b>45</b><span>监测点位</span></div>
         <div><b>24h</b><span>在线守护</span></div>
       </div>
@@ -32,6 +35,7 @@
           <h2>欢迎回来</h2>
           <p>登录运维后台，查看设备与工单实时状态</p>
         </div>
+        <el-alert v-if="platform.maintenance" :title="platform.message" type="warning" :closable="false" show-icon style="margin-bottom: 16px" />
         <el-form :model="form" :rules="rules" ref="formRef" size="large" @keyup.enter="submit">
           <el-form-item prop="companyCode">
             <el-input v-model="form.companyCode" placeholder="公司编码（可选，手机号/邮箱登录可不填）" :prefix-icon="OfficeBuilding" clearable />
@@ -42,19 +46,23 @@
           <el-form-item prop="password">
             <el-input v-model="form.password" type="password" placeholder="请输入密码" :prefix-icon="Lock" show-password />
           </el-form-item>
+          <el-form-item v-if="captcha.enabled" prop="code">
+            <div class="captcha-row">
+              <el-input v-model="form.code" placeholder="请输入验证码" maxlength="4" />
+              <img :src="captcha.img" class="captcha-img" alt="验证码" title="点击刷新" @click="loadCaptcha" />
+            </div>
+          </el-form-item>
           <el-button type="primary" class="submit-btn" :loading="loading" @click="submit">登 录</el-button>
         </el-form>
         <div class="login-tip">手机号或邮箱可直接登录；同名账号需填写公司编码；平台管理员可不填</div>
 
         <div v-if="demoEnabled" class="demo">
-          <div class="demo-title">测试账号（点击直接登录，密码均为 123456）</div>
+          <div class="demo-title">测试账号（点击填入账号，请手动输入密码）</div>
           <div class="demo-list">
             <span @click="fill('admin')">平台管理员 admin</span>
-            <span @click="quickLogin('test_ceo')">测试公司高管 test_ceo</span>
-            <span @click="quickLogin('test_boss')">测试总负责人 test_boss</span>
-            <span @click="quickLogin('test_area')">测试大区负责人 test_area</span>
-            <span @click="quickLogin('test_region')">测试区域负责人 test_region</span>
-            <span @click="quickLogin('test_eng')">测试工程师 test_eng</span>
+            <span @click="fill('oneyoung')">陈毅扬 oneyoung</span>
+            <span @click="fill('wupeisong')">吴培松 wupeisong</span>
+            <span @click="fill('linrongcheng')">林榕城 linrongcheng</span>
           </div>
         </div>
       </div>
@@ -80,8 +88,12 @@ const loading = ref(false)
 const form = reactive({
   companyCode: '',
   username: '',
-  password: ''
+  password: '',
+  uuid: '',
+  code: ''
 })
+const captcha = reactive({ enabled: false, uuid: '', img: '' })
+const platform = reactive({ name: '层流智能运维', logo: '', maintenance: false, message: '' })
 const demoEnabled = ref(false)
 const rules = {
   username: [{ required: true, message: '请输入手机号、邮箱或账号', trigger: 'blur' }],
@@ -90,31 +102,38 @@ const rules = {
 
 function fill(name) {
   const companyCodeMap = {
-    test_ceo: 'TEST-OPS',
-    test_boss: 'TEST-OPS',
-    test_area: 'TEST-OPS',
-    test_region: 'TEST-OPS',
-    test_eng: 'TEST-OPS',
-    manager: 'CLEAN-XM',
-    engineer1: 'CLEAN-XM',
-    ceo_asl: 'FJASL-ZZ',
-    regional_asl: 'FJASL-ZZ',
-    engineer_asl: 'FJASL-ZZ'
+    oneyoung: 'FJASLYLKJ',
+    wupeisong: 'FJASLYLKJ',
+    linrongcheng: 'FJASLYLKJ'
   }
   form.companyCode = companyCodeMap[name] || ''
   form.username = name
-  form.password = '123456'
+  form.password = ''
 }
 
-async function quickLogin(name) {
-  fill(name)
-  await submit()
+async function loadCaptcha() {
+  try {
+    const res = await request.get('/auth/captcha')
+    captcha.enabled = !!res.data?.enabled
+    captcha.uuid = res.data?.uuid || ''
+    captcha.img = res.data?.img || ''
+    form.uuid = captcha.uuid
+    form.code = ''
+  } catch (e) {
+    captcha.enabled = false
+  }
 }
 
 onMounted(async () => {
+  loadCaptcha()
   try {
     const res = await request.get('/public/features')
     demoEnabled.value = !!res.data?.demoLoginEnabled
+    platform.name = res.data?.platformName || '层流智能运维'
+    platform.logo = res.data?.platformLogo || ''
+    platform.maintenance = !!res.data?.maintenanceEnabled
+    platform.message = res.data?.maintenanceMessage || ''
+    document.title = platform.name
   } catch (e) {
     demoEnabled.value = false
   }
@@ -122,6 +141,10 @@ onMounted(async () => {
 
 async function submit() {
   await formRef.value.validate()
+  if (captcha.enabled && !form.code) {
+    ElMessage.warning('请输入验证码')
+    return
+  }
   loading.value = true
   try {
     if (form.companyCode) {
@@ -142,7 +165,7 @@ async function submit() {
     const redirect = route.query.redirect || '/dashboard'
     router.replace(String(redirect))
   } catch (e) {
-    // 错误已由请求拦截器提示
+    if (captcha.enabled) loadCaptcha()
   } finally {
     loading.value = false
   }
@@ -150,6 +173,9 @@ async function submit() {
 </script>
 
 <style scoped>
+.captcha-row { display: flex; align-items: center; gap: 10px; width: 100%; }
+.captcha-row :deep(.el-input) { flex: 1; }
+.captcha-img { width: 120px; height: 40px; border-radius: 6px; border: 1px solid #e2e8f0; cursor: pointer; }
 .login-page { min-height: 100vh; display: flex; background: #fff; }
 .brand-panel {
   width: 56%; min-width: 0; padding: 42px 56px; color: #fff; display: flex; flex-direction: column;
@@ -164,7 +190,8 @@ async function submit() {
   background-size: 42px 42px; pointer-events: none;
 }
 .brand-top { display: flex; gap: 14px; align-items: center; position: relative; z-index: 1; }
-.brand-mark { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #3b82f6, #06b6d4); display: flex; align-items: center; justify-content: center; font-weight: 800; }
+.brand-mark { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #3b82f6, #06b6d4); display: flex; align-items: center; justify-content: center; font-weight: 800; overflow: hidden; }
+.brand-mark img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
 .brand-name { font-size: 17px; font-weight: 700; letter-spacing: .5px; }
 .brand-en { font-size: 11px; color: #7f9ab8; margin-top: 4px; letter-spacing: .3px; }
 .brand-body { margin-top: auto; margin-bottom: auto; position: relative; z-index: 1; max-width: 620px; }

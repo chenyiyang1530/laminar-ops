@@ -67,7 +67,7 @@
           v-for="f in visibleListFields"
           :key="f.name"
           :label="f.label"
-          :min-width="f.width || 120"
+          :min-width="f.type === 'switch' ? Math.max(f.width || 120, 130) : (f.width || 120)"
           show-overflow-tooltip
         >
           <template #default="{ row }">
@@ -77,6 +77,27 @@
             <span v-else-if="f.options">{{ optionLabel(f.options, row[f.name]) }}</span>
             <span v-else-if="f.type === 'date'">{{ formatDate(row[f.name]) }}</span>
             <span v-else-if="f.type === 'datetime'">{{ row[f.name] || '—' }}</span>
+            <el-tag v-else-if="f.name === 'onDuty' && row.leaveStatus" type="warning" effect="light" size="small">请假中</el-tag>
+            <span v-else-if="f.type === 'switch'" class="switch-cell">
+              <span class="switch-label" :class="{ active: !isSwitchOn(f, row) }">{{ f.switchOffText || '关闭' }}</span>
+              <el-switch
+                :model-value="isSwitchOn(f, row)"
+                :disabled="!can('edit')"
+                size="small"
+                @click.stop="toggleTableSwitch(row, f, !isSwitchOn(f, row))"
+              />
+              <span class="switch-label" :class="{ active: isSwitchOn(f, row) }">{{ f.switchOnText || '开启' }}</span>
+            </span>
+            <div v-else-if="f.name === 'skillNames' && row[f.name]" class="skill-tags">
+              <el-tooltip :content="row[f.name]" placement="top">
+                <span class="skill-tag-box">
+                  <el-tag v-for="tag in skillTags(row[f.name]).slice(0, 1)" :key="tag" size="small" effect="plain" class="skill-tag">{{ tag }}</el-tag>
+                  <el-tag v-if="skillTags(row[f.name]).length > 1" size="small" type="info" effect="plain">+{{ skillTags(row[f.name]).length - 1 }}</el-tag>
+                </span>
+              </el-tooltip>
+            </div>
+            <el-tag v-else-if="f.tag && row[f.name]" type="warning" effect="light" size="small">{{ row[f.name] }}</el-tag>
+            <SecureFileLink v-else-if="f.type === 'file' && row[f.name]" :path="row[f.name]" text="查看文件" />
             <span v-else>{{ display(row[f.name]) }}</span>
           </template>
         </el-table-column>
@@ -101,16 +122,25 @@
       />
     </div>
 
-    <el-dialog v-model="dialog" class="crud-dialog" :title="(form[meta.pk] ? '编辑' : '新增') + meta.title" width="920px" destroy-on-close>
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
+    <el-dialog v-model="dialog" class="crud-dialog" width="780px" destroy-on-close>
+      <template #header>
+        <div class="crud-dialog-head">
+          <div class="crud-dialog-title">{{ form[meta.pk] ? '编辑' : '新增' }}{{ meta.title }}</div>
+          <div class="crud-dialog-sub">带 * 为必填项，保存前会自动校验格式</div>
+        </div>
+      </template>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px" class="crud-form">
         <el-row :gutter="20">
-          <el-col v-for="f in formFields" :key="f.name" :span="f.span || 12">
-            <el-form-item :label="f.label" :prop="f.name">
+          <el-col v-for="f in formFields" :key="f.name" :span="f.formSpan || 12">
+            <el-form-item :label="f.label" :prop="f.name" :class="{ 'field-label-top': f.formLabelTop, 'field-compact': f.formWidth, 'field-wide': f.formSpan === 24 || f.type === 'skills' }" :style="f.formWidth ? { '--field-width': f.formWidth + 'px' } : null">
+              <SkillPicker v-if="f.name === 'skillIds' || f.type === 'skillPicker'" v-model="form[f.name]" />
               <el-autocomplete
-                v-if="f.type === 'autocomplete'"
+                v-else-if="f.type === 'autocomplete'"
                 v-model="form[f.name]"
                 :fetch-suggestions="(q, cb) => autocompleteSuggestions(f, form, q, cb)"
                 :placeholder="placeholderFor(f, form, '可选择或输入' + f.label)"
+                :disabled="!!f.readOnly"
+                :maxlength="f.maxLength || undefined"
                 clearable
                 style="width: 100%"
               />
@@ -120,19 +150,27 @@
                 clearable
                 filterable
                 :allow-create="!!f.allowCreate"
+                :multiple="!!f.multiple"
+                collapse-tags
                 default-first-option
-                :disabled="isDisabled(f, form)"
+                :disabled="!!f.readOnly || isDisabled(f, form) || (f.name === 'contactId' && !form[meta.value.pk]) || (props.resource === 'contract' && f.name === 'managerId' && !form.hospitalId)"
                 :placeholder="placeholderFor(f, form, '请选择' + f.label)"
                 style="width: 100%"
                 @change="onSelectChange(f, 'form')"
               >
-                <el-option v-for="o in selectOptions(f, form)" :key="o.value" :label="o.label" :value="o.value" />
+                <template v-if="groupedOptions(f, form).length">
+                  <el-option-group v-for="g in groupedOptions(f, form)" :key="g.category" :label="g.category">
+                    <el-option v-for="o in g.options" :key="o.value" :label="o.label" :value="o.value" />
+                  </el-option-group>
+                </template>
+                <el-option v-else v-for="o in selectOptions(f, form)" :key="o.value" :label="o.label" :value="o.value" />
               </el-select>
               <el-date-picker
                 v-else-if="f.type === 'date'"
                 v-model="form[f.name]"
                 type="date"
                 value-format="YYYY-MM-DD"
+                :disabled="!!f.readOnly"
                 style="width: 100%"
               />
               <el-date-picker
@@ -140,31 +178,78 @@
                 v-model="form[f.name]"
                 type="datetime"
                 value-format="YYYY-MM-DD HH:mm:ss"
+                :disabled="!!f.readOnly"
                 style="width: 100%"
               />
               <el-input-number
                 v-else-if="f.type === 'number'"
                 v-model="form[f.name]"
                 :controls="false"
+                :disabled="!!f.readOnly"
+                :min="f.minValue ?? undefined"
+                :max="f.maxValue ?? undefined"
                 style="width: 100%"
               />
               <el-input
                 v-else-if="f.type === 'address'"
                 v-model="form[f.name]"
                 clearable
+                :disabled="!!f.readOnly"
+                :maxlength="f.maxLength || undefined"
                 :placeholder="f.placeholder || '请输入地址，或点击右侧地图选址'"
               >
                 <template #append>
-                  <el-button :icon="Location" @click="openAddress(f)">地图选址</el-button>
+                  <el-button :icon="Location" :disabled="!!f.readOnly" @click="openAddress(f)">地图选址</el-button>
                 </template>
               </el-input>
+              <el-switch
+                v-else-if="f.type === 'switch'"
+                v-model="form[f.name]"
+                :active-value="f.switchOnValue || '1'"
+                :inactive-value="f.switchOffValue || '0'"
+                :active-text="f.switchOnText || '开启'"
+                :inactive-text="f.switchOffText || '关闭'"
+              />
               <el-input
                 v-else-if="f.type === 'textarea'"
                 v-model="form[f.name]"
                 type="textarea"
-                :rows="3"
+                :disabled="!!f.readOnly"
+                :maxlength="f.maxLength || undefined"
+                :rows="4"
+                :placeholder="f.placeholder || ''"
               />
-              <el-input v-else v-model="form[f.name]" clearable :placeholder="f.placeholder || ''" @input="onCodeInput(f, $event)" />
+              <SkillLevelEditor
+                v-else-if="f.type === 'skills'"
+                v-model="form[f.name]"
+                :disabled="!!f.readOnly"
+              />
+              <FileUpload
+                v-else-if="f.type === 'file'"
+                v-model="form[f.name]"
+                :category="props.resource"
+                :disabled="!!f.readOnly"
+              />
+              <el-input v-else v-model="form[f.name]" clearable :disabled="!!f.readOnly" :maxlength="f.maxLength || undefined" :placeholder="f.placeholder || ''" @input="onCodeInput(f, $event)" />
+            </el-form-item>
+          </el-col>
+          <el-col v-if="props.resource === 'department'" :span="12">
+            <el-form-item label="对接人">
+              <el-select
+                v-model="form.contactId"
+                clearable
+                filterable
+                :disabled="!form.departmentId"
+                :placeholder="form.departmentId ? '请选择本科室对接人' : '保存科室后可选择对接人'"
+                style="width: 100%"
+              >
+                <el-option v-for="o in (departmentContactOptions || [])" :key="o.value" :label="o.label" :value="o.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col v-if="props.resource === 'department'" :span="24">
+            <el-form-item label="备注">
+              <el-input v-model="form.remark" type="textarea" :rows="3" :maxlength="500" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -182,11 +267,17 @@
             v-for="f in detailFields"
             :key="f.name"
             :label="f.label"
-            :span="['address', 'remark', 'description'].includes(f.name) ? 2 : 1"
+            :span="['address', 'remark', 'description', 'skillNames'].includes(f.name) ? 2 : 1"
           >
-            <span v-if="f.dictType">{{ dictLabel(f.dictType, detailRow[f.name]) }}</span>
+            <div v-if="f.name === 'skillNames'" class="detail-skill-tags">
+              <el-tag v-for="tag in skillTags(detailRow[f.name])" :key="tag" size="small" effect="plain">{{ tag }}</el-tag>
+              <span v-if="!skillTags(detailRow[f.name]).length">—</span>
+            </div>
+            <span v-else-if="f.dictType">{{ dictLabel(f.dictType, detailRow[f.name]) }}</span>
             <span v-else-if="f.options">{{ optionLabel(f.options, detailRow[f.name]) }}</span>
             <span v-else-if="f.type === 'date'">{{ formatDate(detailRow[f.name]) }}</span>
+            <el-tag v-else-if="f.tag && detailRow[f.name]" type="warning" effect="light" size="small">{{ detailRow[f.name] }}</el-tag>
+            <SecureFileLink v-else-if="f.type === 'file' && detailRow[f.name]" :path="detailRow[f.name]" text="查看文件" />
             <span v-else>{{ display(detailRow[f.name]) }}</span>
           </el-descriptions-item>
         </el-descriptions>
@@ -222,11 +313,16 @@ import { Search, Refresh, Plus, Delete, Location, Setting, Download } from '@ele
 import { useUserStore } from '@/store/user'
 import request from '@/utils/request'
 import AmapPicker from '@/components/AmapPicker.vue'
+import FileUpload from '@/components/FileUpload.vue'
+import SecureFileLink from '@/components/SecureFileLink.vue'
+import SkillPicker from '@/components/SkillPicker.vue'
+import SkillLevelEditor from '@/components/SkillLevelEditor.vue'
 import { crudMeta, crudPage, crudGet, crudOptions, crudAdd, crudUpdate, crudDelete } from '@/api/crud'
 
 const props = defineProps({
   resource: { type: String, required: true },
-  detail: { type: Boolean, default: false },
+  detail: { type: Boolean, default: true },
+  maxColumns: { type: Number, default: 6 },
   readonly: { type: Boolean, default: false },
   hideAdd: { type: Boolean, default: false },
   hideRemove: { type: Boolean, default: false },
@@ -261,10 +357,17 @@ const selection = ref([])
 const dialog = ref(false)
 const formRef = ref()
 const form = reactive({})
+watch(() => form.operator, (value) => {
+  if (props.resource === 'alarmRule' && value && value !== 'between') form.threshold2 = undefined
+})
 const query = reactive({ pageNum: 1, pageSize: store.pageSize || 10 })
 const dicts = reactive({})
 const options = reactive({})
 const optionCache = reactive({})
+const regionManagerOptions = ref(null)
+const departmentContactOptions = ref(null)
+const contractManagerOptions = ref(null)
+const planAssigneeOptions = ref(null)
 const hiddenColumns = ref(readHiddenColumns())
 const columnStorageKey = computed(() => `laminar_columns_${props.resource}`)
 const visibleColumnNames = computed({
@@ -282,7 +385,16 @@ function readHiddenColumns() {
 
 function resetColumns() {
   hiddenColumns.value = []
-  try { localStorage.removeItem(columnStorageKey.value) } catch (e) { /* ignore */ }
+  try { localStorage.removeItem(columnStorageKey.value); } catch (e) { /* ignore */ }
+  applyDefaultColumns()
+}
+
+function applyDefaultColumns() {
+  try {
+    if (localStorage.getItem(columnStorageKey.value)) return
+  } catch (e) { /* ignore */ }
+  const limit = props.maxColumns > 0 ? props.maxColumns : listFields.value.length
+  hiddenColumns.value = listFields.value.slice(limit).map((f) => f.name)
 }
 
 async function exportCsv() {
@@ -330,11 +442,10 @@ async function exportCsv() {
 
 const DEPENDS = {
   department: { campusId: 'hospitalId' },
-  cleanArea: { campusId: 'hospitalId', departmentId: 'campusId' },
   contact: { campusId: 'hospitalId', departmentId: 'campusId' },
-  equipment: { campusId: 'hospitalId', departmentId: 'campusId', areaId: 'campusId' },
-  inspectionPlan: { campusId: 'hospitalId', areaId: 'campusId' },
-  maintenancePlan: { equipmentId: 'hospitalId' },
+  equipment: { campusId: 'hospitalId', departmentId: 'campusId' },
+  inspectionPlan: { campusId: 'hospitalId', departmentId: 'campusId', assigneeId: 'hospitalId' },
+  maintenancePlan: { equipmentId: 'hospitalId', assigneeId: 'hospitalId' },
   monitorPoint: {}
 }
 
@@ -358,9 +469,12 @@ const inlineOptions = {
 
 const fields = computed(() => meta.value.fields || [])
 const listFields = computed(() => fields.value.filter((f) => f.list))
-const formFields = computed(() => fields.value.filter((f) => f.form && !effectiveHiddenFields.value.includes(f.name)))
+const formFields = computed(() => fields.value.filter((f) => f.form && f.name !== 'contactId'
+  && !(props.resource === 'department' && f.name === 'remark')
+  && !(props.resource === 'alarmRule' && f.name === 'threshold2' && form.operator !== 'between')
+  && !effectiveHiddenFields.value.includes(f.name)))
 const searchFields = computed(() => fields.value.filter((f) => f.query && f.query !== 'none' && !effectiveHiddenFields.value.includes(f.name)).slice(0, 5))
-const detailFields = computed(() => fields.value.filter((f) => f.list || f.form))
+const detailFields = computed(() => fields.value.filter((f) => (f.list || f.form) && f.name !== 'skillIds'))
 const detailTitle = computed(() => {
   const name = detailRow.value?.[meta.value.nameColumn]
   return name || (meta.value.title + '详情')
@@ -369,7 +483,19 @@ const detailTitle = computed(() => {
 const rules = computed(() => {
   const r = {}
   formFields.value.forEach((f) => {
-    if (f.required) r[f.name] = [{ required: true, message: '请填写' + f.label, trigger: 'blur' }]
+    const list = []
+    if (f.required) list.push({ required: true, message: '请填写' + f.label, trigger: 'blur' })
+    if (f.maxLength) list.push({ max: f.maxLength, message: f.label + '不能超过' + f.maxLength + '个字符', trigger: 'blur' })
+    if (f.pattern) {
+      list.push({
+        validator: (_rule, value, callback) => {
+          if (!value || new RegExp(f.pattern).test(String(value))) callback()
+          else callback(new Error(f.validationMessage || (f.label + '格式不正确')))
+        },
+        trigger: 'blur'
+      })
+    }
+    if (list.length) r[f.name] = list
   })
   return r
 })
@@ -380,7 +506,7 @@ function can(action) {
 }
 
 function rowIndex(i) {
-  return (query.pageNum - 1) * query.pageSize + i + 1
+  return i + 1
 }
 
 function loadOptions(ref, params) {
@@ -388,7 +514,32 @@ function loadOptions(ref, params) {
   return crudOptions(ref, params)
 }
 
+function groupedOptions(f, model) {
+  const list = selectOptions(f, model) || []
+  if (!list.some((o) => o.category)) return []
+  const groups = new Map()
+  list.forEach((o) => {
+    const key = o.category || '其他'
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(o)
+  })
+  return [...groups.entries()].map(([category, options]) => ({ category, options }))
+}
+
 function selectOptions(f, model) {
+  if (props.resource === 'region' && f.name === 'managerId' && regionManagerOptions.value) {
+    return regionManagerOptions.value
+  }
+  if (props.resource === 'department' && f.name === 'contactId' && departmentContactOptions.value) {
+    return departmentContactOptions.value
+  }
+  if (props.resource === 'contract' && f.name === 'managerId' && contractManagerOptions.value) {
+    return contractManagerOptions.value
+  }
+  if (['inspectionPlan', 'maintenancePlan'].includes(props.resource)
+      && f.name === 'assigneeId' && planAssigneeOptions.value) {
+    return planAssigneeOptions.value
+  }
   if (f.dictType) return (dicts[f.dictType] || []).map((d) => ({ value: d.dictValue, label: d.dictLabel }))
   if (inlineOptions[f.options]) return inlineOptions[f.options]
   if (depParent(f) && !parentReady(f, model)) return []
@@ -486,6 +637,10 @@ function tagType(f, v) {
 function display(v) {
   return v === null || v === undefined || v === '' ? '—' : v
 }
+function skillTags(value) {
+  if (!value) return []
+  return String(value).split(/[、,，]/).map((s) => s.trim()).filter(Boolean)
+}
 function formatDate(v) {
   return v ? String(v).slice(0, 10) : '—'
 }
@@ -493,6 +648,7 @@ function formatDate(v) {
 async function loadMeta() {
   const res = await crudMeta(props.resource)
   meta.value = res.data
+  applyDefaultColumns()
 }
 
 async function loadBase() {
@@ -542,6 +698,10 @@ function reset() {
 }
 
 function resetForm() {
+  regionManagerOptions.value = null
+  departmentContactOptions.value = null
+  contractManagerOptions.value = null
+  planAssigneeOptions.value = null
   Object.keys(form).forEach((k) => delete form[k])
   formFields.value.forEach((f) => {
     if (f.defaultValue !== undefined && f.defaultValue !== null) form[f.name] = f.defaultValue
@@ -620,9 +780,95 @@ async function openEdit(row) {
   resetForm()
   const res = await crudGet(props.resource, row[meta.value.pk])
   Object.assign(form, res.data)
+  formFields.value.forEach((f) => {
+    if (f.type !== 'autocomplete' || !f.dictType) return
+    const value = form[f.name]
+    if (!value) return
+    const matched = (dicts[f.dictType] || []).find((d) => String(d.dictValue) === String(value))
+    if (matched) form[f.name] = matched.dictLabel
+  })
   applyFormDefaults()
   if (store.hospitalId) form.hospitalId = store.hospitalId
+  if (props.resource === 'region') await loadRegionManagerOptions()
+  if (props.resource === 'department') await loadDepartmentContactOptions()
+  if (props.resource === 'contract') await loadContractManagerOptions()
+  if (['inspectionPlan', 'maintenancePlan'].includes(props.resource)) await loadPlanAssigneeOptions()
   dialog.value = true
+}
+
+async function loadContractManagerOptions() {
+  contractManagerOptions.value = null
+  if (!form.hospitalId) return
+  try {
+    const res = await request.get(`/customer/hospital/${form.hospitalId}/manager-options`)
+    contractManagerOptions.value = res.data || []
+  } catch (e) {
+    contractManagerOptions.value = []
+  }
+}
+
+watch(() => form.hospitalId, () => {
+  if (props.resource === 'contract' && dialog.value) loadContractManagerOptions()
+  if (['inspectionPlan', 'maintenancePlan'].includes(props.resource) && dialog.value) loadPlanAssigneeOptions()
+})
+
+async function loadPlanAssigneeOptions() {
+  planAssigneeOptions.value = null
+  if (!form.hospitalId) return
+  try {
+    const res = await request.get(`/customer/hospital/${form.hospitalId}/manager-options`)
+    planAssigneeOptions.value = res.data || []
+  } catch (e) {
+    planAssigneeOptions.value = []
+  }
+}
+
+async function loadDepartmentContactOptions() {
+  departmentContactOptions.value = null
+  if (!form.departmentId || !form.hospitalId) return
+  try {
+    const res = await request.get('/crud/contact/options', {
+      params: { hospitalId: form.hospitalId, departmentId: form.departmentId, status: '0' }
+    })
+    departmentContactOptions.value = res.data || []
+  } catch (e) {
+    departmentContactOptions.value = []
+  }
+}
+
+async function loadRegionManagerOptions() {
+  if (!form.regionId) {
+    regionManagerOptions.value = null
+    return
+  }
+  try {
+    const res = await request.get(`/customer/region/${form.regionId}/manager-options`)
+    regionManagerOptions.value = res.data || []
+  } catch (e) {
+    regionManagerOptions.value = null
+  }
+}
+
+function isSwitchOn(f, row) {
+  return String(row[f.name]) === String(f.switchOnValue || '1')
+}
+
+async function toggleTableSwitch(row, f, value) {
+  if (!can('edit')) return
+  try {
+    await request.put(`/crud/${props.resource}`, {
+      [meta.value.pk]: row[meta.value.pk],
+      [f.name]: value ? (f.switchOnValue || '1') : (f.switchOffValue || '0')
+    })
+    if (value) {
+      ElMessage.success('已开启')
+    } else {
+      ElMessage({ message: '已关闭', type: 'warning', customClass: 'toast-off' })
+    }
+    await load()
+  } catch (e) {
+    await load()
+  }
 }
 
 async function submit() {
@@ -661,7 +907,7 @@ async function removeSelected() {
 function applyRouteQuery(params) {
   if (!params) return false
   const known = new Set(fields.value.filter((f) => f.query && f.query !== 'none').map((f) => f.name))
-  const idFields = /^(hospitalId|campusId|departmentId|areaId|equipmentId|engineerId|deviceTypeId)$/
+  const idFields = /^(hospitalId|campusId|departmentId|equipmentId|engineerId|deviceTypeId)$/
   if (params.hospitalId) {
     fields.value
       .filter((f) => f.query && f.query !== 'none' && f.name !== 'hospitalId')
@@ -707,4 +953,16 @@ watch(
 .detail-body { padding: 2px 2px 10px; }
 :global(.crud-dialog) { max-width: 94vw; }
 .detail-tabs { margin-top: 16px; }
+.switch-cell { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.switch-label { color: #9aa4b2; font-size: 11px; }
+.switch-label.active { color: #303133; font-weight: 600; }
+.detail-skill-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.skill-tags { min-width: 0; }
+.skill-tag-box { display: inline-flex; align-items: center; flex-wrap: nowrap; gap: 4px; max-width: 190px; overflow: hidden; }
+.skill-tag { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crud-dialog-head { padding-right: 28px; }
+.crud-dialog-title { font-size: 17px; font-weight: 600; color: #1f2d3d; letter-spacing: .01em; }
+.crud-dialog-sub { margin-top: 4px; font-size: 12px; color: #8a99ad; }
+.crud-form :deep(.el-form-item__label) { color: #52637a; font-weight: 500; }
+.crud-form :deep(.el-row) { row-gap: 2px; }
 </style>

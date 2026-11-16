@@ -70,12 +70,13 @@
         <el-table-column v-if="isVisible('duration')" label="持续时间" min-width="110">
           <template #default="{ row }">{{ fmtDuration(row.duration) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="290" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.status === '0' && can('confirm')" link type="primary" @click="confirm(row)">确认</el-button>
             <el-button v-if="['0','1'].includes(row.status) && can('handle')" link type="warning" @click="openHandle(row)">处理</el-button>
             <el-button v-if="['0','1','2'].includes(row.status) && can('close')" link type="success" @click="openClose(row)">消缺</el-button>
             <el-button v-if="['0','1','2'].includes(row.status) && can('ignore')" link type="info" @click="openIgnore(row)">忽略</el-button>
+            <el-button v-if="store.hasPerm('workorder:add') && !row.workorderId" link type="primary" @click="toWorkorder(row)">转工单</el-button>
             <el-button link @click="openDetail(row)">追溯</el-button>
           </template>
         </el-table-column>
@@ -137,7 +138,7 @@
         </div>
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item label="设备">{{ detail.alarm.equipment_name }}</el-descriptions-item>
-          <el-descriptions-item label="位置">{{ detail.alarm.hospital_name }} / {{ detail.alarm.campus_name }} / {{ detail.alarm.area_name }}</el-descriptions-item>
+          <el-descriptions-item label="位置">{{ detail.alarm.hospital_name }} / {{ detail.alarm.campus_name }}</el-descriptions-item>
           <el-descriptions-item label="内容">{{ detail.alarm.content }}</el-descriptions-item>
           <el-descriptions-item label="首次发生">{{ detail.alarm.first_time }}</el-descriptions-item>
           <el-descriptions-item label="确认">{{ detail.alarm.confirm_by || '—' }} {{ detail.alarm.confirm_time || '' }}</el-descriptions-item>
@@ -298,10 +299,13 @@ async function openDetail(row) {
   detail.value = res.data
 }
 
-async function toWorkorder() {
-  const res = await request.post('/workorder/from-alarm/' + detail.value.alarm.alarm_id)
+async function toWorkorder(row) {
+  const alarmId = row?.alarmId || detail.value?.alarm?.alarm_id
+  if (!alarmId) return
+  const res = await request.post('/workorder/from-alarm/' + alarmId)
   ElMessage.success('已生成工单：' + res.data)
-  detail.value.alarm.workorder_id = res.data
+  if (row) row.workorderId = res.data
+  if (detail.value?.alarm) detail.value.alarm.workorder_id = res.data
 }
 
 onMounted(async () => {

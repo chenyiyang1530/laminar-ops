@@ -73,7 +73,14 @@
       </el-table>
     </div>
 
-    <el-dialog v-model="versionVisible" title="审批规则版本" width="760px">
+    <el-dialog v-model="versionVisible" title="审批规则版本" width="1000px" class="version-dialog">
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        class="version-tip"
+        title="回滚会以所选版本的规则生成一个新版本并自动发布，原版本保留在历史中；已提交的请假仍按提交时规则执行。"
+      />
       <el-table v-loading="versionLoading" :data="versions" stripe>
         <el-table-column prop="versionNo" label="版本号" width="90">
           <template #default="{ row }">V{{ row.versionNo }}</template>
@@ -81,23 +88,27 @@
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="row.status === 'PUBLISHED' ? 'success' : 'info'" size="small">
-              {{ row.status === 'PUBLISHED' ? '已发布' : '已归档' }}
+              {{ row.status === 'PUBLISHED' ? '当前版本' : '历史归档' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="createdBy" label="创建人" width="100" />
-        <el-table-column prop="createTime" label="创建时间" width="170" />
-        <el-table-column prop="publishedTime" label="发布时间" width="170" />
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="规则内容" min-width="300">
+          <template #default="{ row }">
+            <span class="version-summary">{{ versionSummary(row) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="createdBy" label="创建人" width="90" />
+        <el-table-column prop="createTime" label="创建时间" width="155" />
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.status !== 'PUBLISHED'" link type="primary" @click="publishVersion(row)">发布</el-button>
-            <el-button link type="warning" @click="rollbackVersion(row)">回滚</el-button>
+            <el-button link type="warning" @click="rollbackVersion(row)">回滚到此版本</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-dialog>
 
-    <el-dialog v-model="compareVisible" title="配置版本对比" width="520px">
+    <el-dialog v-model="compareVisible" title="配置版本对比" width="720px">
       <template v-if="compareRow">
         <div class="compare-head">{{ typeText(compareRow.leaveType) }}</div>
         <el-table :data="compareRows" border>
@@ -179,6 +190,21 @@ async function load() {
   }
 }
 
+function versionSummary(row) {
+  try {
+    const list = JSON.parse(row.snapshotJson || '[]')
+    if (!list.length) return '空配置'
+    return list.map((r) => {
+      const leaveType = r.leaveType ?? r.leave_type
+      const threshold = r.thresholdDays ?? r.threshold_days ?? '—'
+      const second = String(r.secondLevel ?? r.second_level) === '1'
+      return `${typeText(leaveType)} ${threshold}天/${second ? '二级' : '一级'}`
+    }).join('；')
+  } catch (e) {
+    return '规则快照不可读'
+  }
+}
+
 async function save() {
   saving.value = true
   try {
@@ -222,7 +248,11 @@ async function publishVersion(row) {
 }
 
 async function rollbackVersion(row) {
-  await ElMessageBox.confirm(`确认回滚到 V${row.versionNo}？系统会生成一个新的回滚版本。`, '回滚版本', { type: 'warning' })
+  await ElMessageBox.confirm(
+    `确认回滚到 V${row.versionNo}？系统会以该版本规则生成一个新版本并自动发布，原版本 V${row.versionNo} 仍保留。`,
+    '回滚版本',
+    { type: 'warning' }
+  )
   const res = await request.post(`/approval/rules/versions/${row.versionId}/rollback`)
   ElMessage.success(`已回滚，新版本 V${res.data?.versionNo || ''}`)
   await loadVersions()
@@ -298,4 +328,6 @@ onMounted(async () => {
 .head-actions { display: flex; align-items: center; gap: 10px; }
 .copy-hint { margin-top: 8px; color: #8a99ab; font-size: 13px; line-height: 1.6; }
 .compare-head { margin-bottom: 12px; font-size: 15px; font-weight: 600; }
+.version-tip { margin-bottom: 14px; }
+.version-summary { color: #4b5b6e; font-size: 12px; line-height: 1.6; }
 </style>

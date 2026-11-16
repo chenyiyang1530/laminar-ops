@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -98,21 +99,41 @@ public class ApprovalService {
             throw BizException.badRequest("暂不支持该审批类型");
         }
         leaveService.approve(((Number) task.get("bizId")).longValue(), comment, approved);
+        logAction(taskId, "engineer_leave", ((Number) task.get("bizId")).longValue(),
+                approved ? "APPROVE" : "REJECT", userId, null, comment);
     }
 
     public List<Map<String, Object>> transferOptions() {
         LoginUser user = AuthContext.require();
         Long companyId = dataScope.companyId(user);
+        int actorRank = userRank(user.getUserId());
         if (companyId == null) {
-            return jdbc.queryForList(
-                    "select user_id as `value`, concat(nick_name,'（',username,'）') as `label` " +
-                            "from sys_user where status='0' and user_type<>'2' and user_id<>? order by nick_name",
-                    user.getUserId());
+            if (user.isSuperAdmin()) {
+                return jdbc.queryForList(
+                        "select u.user_id as `value`, concat(u.nick_name,'（',coalesce(d.dept_name,'未分配部门'),'）') as `label` " +
+                                "from sys_user u left join sys_dept d on d.dept_id=u.dept_id " +
+                                "where u.status='0' and u.user_type<>'2' and u.user_id<>? order by u.nick_name",
+                        user.getUserId());
+            }
         }
-        return jdbc.queryForList(
-                "select user_id as `value`, concat(nick_name,'（',username,'）') as `label` " +
-                        "from sys_user where status='0' and user_type<>'2' and company_id=? and user_id<>? order by nick_name",
-                companyId, user.getUserId());
+        String companyFilter = companyId == null ? "" : " and u.company_id=? ";
+        List<Object> args = new ArrayList<>();
+        args.add(user.getUserId());
+        if (companyId != null) args.add(companyId);
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select u.user_id as `value`, concat(u.nick_name,'（',coalesce(d.dept_name,'未分配部门'),'）') as `label`, " +
+                        "coalesce(max(case r.role_key " +
+                        "when 'super_admin' then 1000 when 'company_admin' then 900 when 'company_sub_admin' then 800 " +
+                        "when 'company_executive' then 700 when 'maintenance_manager' then 600 " +
+                        "when 'regional_manager' then 500 when 'engineer' then 400 when 'department_staff' then 300 " +
+                        "else 10 end), 0) as `rank` " +
+                        "from sys_user u left join sys_user_role ur on ur.user_id=u.user_id " +
+                        "left join sys_role r on r.role_id=ur.role_id left join sys_dept d on d.dept_id=u.dept_id " +
+                        "where u.status='0' and u.user_type<>'2' and u.user_id<>?" + companyFilter +
+                        " group by u.user_id, u.nick_name, d.dept_name order by u.nick_name",
+                args.toArray());
+        return rows.stream().filter(r -> ((Number) r.get("rank")).intValue() >= actorRank)
+                .peek(r -> r.remove("rank")).toList();
     }
 
     public void transfer(Long taskId, Long targetUserId) {
@@ -141,10 +162,41 @@ public class ApprovalService {
         if (target.isEmpty() || !"0".equals(target.get(0).get("status"))) {
             throw BizException.badRequest("目标审批人不可用");
         }
+        if (!user.isSuperAdmin() && userRank(targetUserId) < userRank(user.getUserId())) {
+            throw BizException.badRequest("只能转交给上级或同级审批人");
+        }
         jdbc.update("update biz_approval_task set approver_id=? where task_id=?", targetUserId, taskId);
+        logAction(taskId, "engineer_leave", ((Number) task.get("bizId")).longValue(),
+                "TRANSFER", user.getUserId(), targetUserId, null);
         jdbc.update("insert into biz_message(msg_type,title,content,level,biz_type,biz_id,receiver_id,company_id,is_read,create_time) " +
                         "values('approval',?,?,'2','approval_task',?,?,?,'0',now())",
                 "审批转交", user.getNickName() + " 将一条请假审批转交给你处理", taskId, targetUserId, ownerCompany);
+    }
+
+    private int userRank(Long userId) {
+        List<String> keys = jdbc.queryForList(
+                "select r.role_key from sys_user_role ur join sys_role r on r.role_id=ur.role_id where ur.user_id=?",
+                String.class, userId);
+        int rank = 0;
+        for (String key : keys) rank = Math.max(rank, roleRank(key));
+        return rank;
+    }
+
+    private int roleRank(String roleKey) {
+        return switch (roleKey == null ? "" : roleKey) {
+            case "super_admin" -> 1000;
+            case "company_admin" -> 900;
+            case "company_sub_admin" -> 800;
+            case "company_executive" -> 700;
+            case "maintenance_manager" -> 600;
+            case "regional_manager" -> 500;
+            case "engineer" -> 400;
+            case "department_staff" -> 300;
+            case "hospital_admin" -> 200;
+            case "hospital_sub_admin" -> 150;
+            case "hospital_dept" -> 100;
+            default -> 10;
+        };
     }
 
     public void urge(Long taskId) {
@@ -198,7 +250,22 @@ public class ApprovalService {
                         "left join sys_user u on u.user_id=t.approver_id " +
                         "where t.biz_type='engineer_leave' and t.biz_id=? order by t.step_no, t.task_id",
                 leaveId));
+        result.put("logs", jdbc.queryForList(
+                "select l.action, l.comment, l.create_time as `createTime`, " +
+                        "f.nick_name as `fromName`, tgt.nick_name as `toName` " +
+                        "from biz_approval_action_log l " +
+                        "left join sys_user f on f.user_id=l.operator_id " +
+                        "left join sys_user tgt on tgt.user_id=l.target_user_id " +
+                        "where l.biz_type='engineer_leave' and l.biz_id=? order by l.log_id",
+                leaveId));
         return result;
+    }
+
+    private void logAction(Long taskId, String bizType, Long bizId, String action,
+                           Long operatorId, Long targetUserId, String comment) {
+        jdbc.update("insert into biz_approval_action_log(task_id,biz_type,biz_id,action,operator_id,target_user_id,comment,create_time) " +
+                        "values(?,?,?,?,?,?,?,now())",
+                taskId, bizType, bizId, action, operatorId, targetUserId, comment);
     }
 
     public List<Map<String, Object>> delegates() {
@@ -363,12 +430,12 @@ public class ApprovalService {
         if (regionId != null && regionId <= 0) regionId = null;
         return companyId == null
                 ? jdbc.queryForList("select version_id as `versionId`, version_no as `versionNo`, status, " +
-                "created_by as `createdBy`, create_time as `createTime`, published_by as `publishedBy`, " +
+                "snapshot_json as `snapshotJson`, created_by as `createdBy`, create_time as `createTime`, published_by as `publishedBy`, " +
                 "published_time as `publishedTime` from biz_approval_rule_version where company_id is null and region_id " +
                 (regionId == null ? "is null" : "=?") + " order by version_no desc",
                 regionId == null ? new Object[0] : new Object[]{regionId})
                 : jdbc.queryForList("select version_id as `versionId`, version_no as `versionNo`, status, " +
-                "created_by as `createdBy`, create_time as `createTime`, published_by as `publishedBy`, " +
+                "snapshot_json as `snapshotJson`, created_by as `createdBy`, create_time as `createTime`, published_by as `publishedBy`, " +
                 "published_time as `publishedTime` from biz_approval_rule_version where company_id=? and region_id " +
                 (regionId == null ? "is null" : "=?") + " order by version_no desc",
                 regionId == null ? new Object[]{companyId} : new Object[]{companyId, regionId});

@@ -17,3 +17,10 @@ app-err.log
 application-local.yml
 .ssh/
 tools/ui-check/npm-cache/
+
+certs/
+*.p12
+*.jks
+
+.secrets.local
+backend/certs/

@@ -40,7 +40,7 @@
         <el-table-column prop="planName" label="计划" min-width="180" show-overflow-tooltip />
         <el-table-column :prop="isInspection ? 'planTime' : 'planDate'" label="计划日期" width="120" />
         <el-table-column prop="hospitalName" label="医院" min-width="160" show-overflow-tooltip />
-        <el-table-column v-if="isInspection" prop="areaName" label="洁净区域" min-width="150" show-overflow-tooltip />
+        <el-table-column v-if="isInspection" prop="departmentName" label="科室" min-width="150" show-overflow-tooltip />
         <el-table-column prop="equipmentName" label="设备" min-width="150" show-overflow-tooltip />
         <el-table-column prop="assigneeName" label="执行人" width="90" v-if="isInspection" />
         <el-table-column label="状态" width="96">
@@ -58,7 +58,7 @@
         </el-table-column>
         <el-table-column label="操作" width="170" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="['0','1','3'].includes(row.status) && canExecute" link type="primary" @click="openExecute(row)">
+            <el-button v-if="['0','1','3'].includes(row.status) && canExecuteRow(row)" link type="primary" @click="openExecute(row)">
               {{ row.status === '1' ? '继续执行' : '执行' }}
             </el-button>
             <el-button link @click="openExecute(row, true)">查看</el-button>
@@ -160,6 +160,13 @@ const form = reactive({ result: '1', problemDesc: '', content: '', partsUsed: ''
 
 const canExecute = computed(() => store.hasPerm(`${props.type}:task:execute`))
 const canPlanEdit = computed(() => store.hasPerm(`${props.type}:plan:edit`))
+function canExecuteRow(row) {
+  if (!canExecute.value) return false
+  if (store.isSuperAdmin) return true
+  if (row.assigneeId === null || row.assigneeId === undefined) return true
+  return store.engineerId !== null && store.engineerId !== undefined
+    && String(row.assigneeId) === String(store.engineerId)
+}
 
 function statusText(s) { return { 0: '待执行', 1: '执行中', 2: '已完成', 3: '已逾期', 4: '已取消' }[s] || s }
 function statusType(s) { return { 0: 'warning', 1: 'primary', 2: 'success', 3: 'danger', 4: 'info' }[s] || 'info' }

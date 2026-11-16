@@ -4,6 +4,7 @@ import com.laminar.ops.common.BizException;
 import com.laminar.ops.security.AuthContext;
 import com.laminar.ops.security.DataScopeService;
 import com.laminar.ops.security.LoginUser;
+import com.laminar.ops.system.service.SysConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,6 +31,7 @@ public class AlarmService {
     private final DataScopeService dataScope;
     private final WorkorderService workorderService;
     private final ContractScopeService contractScope;
+    private final SysConfigService sysConfig;
 
     /** 监测值越限：合并或新建告警。返回 1 表示新建。 */
     public int raise(Map<String, Object> point, double value, Double lo, Double hi) {
@@ -39,7 +41,7 @@ public class AlarmService {
         String content = point.get("equipment_name") + " " + point.get("point_name") + " 实测 " +
                 trim(value) + point.get("unit") + "，" + (threshold != null && value < threshold ? "低于下限 " : "超过上限 ") +
                 trim(threshold) + point.get("unit");
-        return insertOrMerge(point, value, level, threshold, content, false);
+        return insertOrMerge(point, value, level, threshold, content, false, null);
     }
 
     /** 按告警规则触发：使用规则级别与文案 */
@@ -47,11 +49,12 @@ public class AlarmService {
                          Double threshold, String content) {
         String level = rule.get("level") == null ? "3" : String.valueOf(rule.get("level"));
         boolean auto = "1".equals(String.valueOf(rule.get("auto_workorder")));
-        return insertOrMerge(point, value, level, threshold, content, auto);
+        Long ruleId = rule.get("rule_id") == null ? null : ((Number) rule.get("rule_id")).longValue();
+        return insertOrMerge(point, value, level, threshold, content, auto, ruleId);
     }
 
     private int insertOrMerge(Map<String, Object> point, double value, String level,
-                              Double threshold, String content, boolean autoWorkorder) {
+                              Double threshold, String content, boolean autoWorkorder, Long ruleId) {
         Long pointId = ((Number) point.get("point_id")).longValue();
         Long equipmentId = ((Number) point.get("equipment_id")).longValue();
         if (mergeOpen(pointId, value)) {
@@ -64,7 +67,7 @@ public class AlarmService {
         try {
             jdbc.update(con -> {
                 PreparedStatement ps = con.prepareStatement(
-                        "insert into biz_alarm(alarm_no,company_id,hospital_id,campus_id,area_id,department_id,equipment_id,point_id," +
+                        "insert into biz_alarm(alarm_no,company_id,hospital_id,campus_id,department_id,equipment_id,rule_id,point_id," +
                                 "metric,level,alarm_value,threshold,content,status,first_time,last_time,duration,create_by,create_time) " +
                                 "values(?,?,?,?,?,?,?,?,?,?,?,?,?,'0',now(),now(),0,'system',now())",
                         Statement.RETURN_GENERATED_KEYS);
@@ -72,9 +75,9 @@ public class AlarmService {
                 ps.setObject(2, point.get("company_id"));
                 ps.setObject(3, point.get("hospital_id"));
                 ps.setObject(4, point.get("campus_id"));
-                ps.setObject(5, point.get("area_id"));
-                ps.setObject(6, point.get("department_id"));
-                ps.setObject(7, equipmentId);
+                ps.setObject(5, point.get("department_id"));
+                ps.setObject(6, equipmentId);
+                ps.setObject(7, ruleId);
                 ps.setObject(8, pointId);
                 ps.setString(9, metric);
                 ps.setString(10, level);
@@ -153,18 +156,17 @@ public class AlarmService {
         KeyHolder holder = new GeneratedKeyHolder();
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement(
-                    "insert into biz_alarm(alarm_no,company_id,hospital_id,campus_id,area_id,department_id,equipment_id,point_id," +
+                    "insert into biz_alarm(alarm_no,company_id,hospital_id,campus_id,department_id,equipment_id,point_id," +
                             "metric,level,content,status,first_time,last_time,duration,create_by,create_time) " +
-                            "values(?,?,?,?,?,?,?,null,'offline','1',?,'0',now(),now(),0,'system',now())",
+                            "values(?,?,?,?,?,?,null,'offline','1',?,'0',now(),now(),0,'system',now())",
                     Statement.RETURN_GENERATED_KEYS);
             ps.setString(1, alarmNo);
             ps.setObject(2, equipment.get("company_id"));
             ps.setObject(3, equipment.get("hospital_id"));
             ps.setObject(4, equipment.get("campus_id"));
-            ps.setObject(5, equipment.get("area_id"));
-            ps.setObject(6, equipment.get("department_id"));
-            ps.setObject(7, equipmentId);
-            ps.setString(8, content);
+            ps.setObject(5, equipment.get("department_id"));
+            ps.setObject(6, equipmentId);
+            ps.setString(7, content);
             return ps;
         }, holder);
         Long alarmId = holder.getKey() == null ? 0L : holder.getKey().longValue();
@@ -235,7 +237,8 @@ public class AlarmService {
                         .append(") ");
             }
         }
-        if (user.isHospitalUser() && user.getRoleKeys().contains("hospital_dept") && user.getDepartmentId() != null) {
+        if (user.isHospitalUser() && (user.getRoleKeys().contains("hospital_dept")
+                || user.getRoleKeys().contains("hospital_sub_admin")) && user.getDepartmentId() != null) {
             where.append(" and a.department_id = ? ");
             args.add(user.getDepartmentId());
         }
@@ -256,10 +259,9 @@ public class AlarmService {
                         "a.confirm_by as `confirmBy`, date_format(a.confirm_time,'%Y-%m-%d %H:%i:%s') as `confirmTime`, " +
                         "a.close_by as `closeBy`, a.root_cause as `rootCause`, a.solution, a.workorder_id as `workorderId`, " +
                         "e.equipment_name as `equipmentName`, h.hospital_name as `hospitalName`, " +
-                        "ar.area_name as `areaName`, c.campus_name as `campusName` " +
+                        "c.campus_name as `campusName` " +
                         "from biz_alarm a left join biz_equipment e on e.equipment_id=a.equipment_id " +
                         "left join biz_hospital h on h.hospital_id=a.hospital_id " +
-                        "left join biz_clean_area ar on ar.area_id=a.area_id " +
                         "left join biz_campus c on c.campus_id=a.campus_id " +
                         where + " order by a.first_time desc limit ? offset ?", pageArgs.toArray());
         Map<String, Object> result = new LinkedHashMap<>();
@@ -270,10 +272,9 @@ public class AlarmService {
 
     public Map<String, Object> detail(Long id) {
         Map<String, Object> alarm = jdbc.queryForMap(
-                "select a.*, e.equipment_name, e.equipment_code, h.hospital_name, ar.area_name, c.campus_name " +
+                "select a.*, e.equipment_name, e.equipment_code, h.hospital_name, c.campus_name " +
                         "from biz_alarm a left join biz_equipment e on e.equipment_id=a.equipment_id " +
                         "left join biz_hospital h on h.hospital_id=a.hospital_id " +
-                        "left join biz_clean_area ar on ar.area_id=a.area_id " +
                         "left join biz_campus c on c.campus_id=a.campus_id where a.alarm_id=?", id);
         LoginUser user = AuthContext.require();
         Object alarmHospital = alarm.get("hospital_id");
@@ -376,6 +377,7 @@ public class AlarmService {
     }
 
     private void insertMessage(Long alarmId, Map<String, Object> point, String content, String level) {
+        if (!sysConfig.bool("platform.notify.inAppEnabled", true)) return;
         Long companyId = null;
         if (point.get("equipment_id") != null) {
             java.util.List<Long> companies = jdbc.queryForList(
@@ -387,8 +389,8 @@ public class AlarmService {
             companyId = contractScope.resolveCompany(
                     point.get("hospital_id") == null ? null : ((Number) point.get("hospital_id")).longValue(),
                     point.get("department_id") == null ? null : ((Number) point.get("department_id")).longValue(),
-                    point.get("area_id") == null ? null : ((Number) point.get("area_id")).longValue(),
-                    point.get("equipment_id") == null ? null : ((Number) point.get("equipment_id")).longValue());
+                    point.get("equipment_id") == null ? null : ((Number) point.get("equipment_id")).longValue(),
+                    point.get("campus_id") == null ? null : ((Number) point.get("campus_id")).longValue());
         }
         if (companyId == null && point.get("hospital_id") != null) {
             companyId = contractScope.uniqueActiveCompany(((Number) point.get("hospital_id")).longValue());

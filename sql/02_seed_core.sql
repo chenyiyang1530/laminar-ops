@@ -1,6 +1,6 @@
 -- =============================================================
 -- 初始化数据：角色 / 用户 / 组织 / 岗位 / 字典
--- 默认密码 123456（SHA-256 加盐）
+-- 初始密码 Laminar@2026（SHA-256 加盐），首次登录强制修改
 -- =============================================================
 USE `laminar_ops`;
 
@@ -35,8 +35,8 @@ INSERT INTO `sys_post` (`post_id`,`post_code`,`post_name`,`sort`,`status`,`remar
 (5,'CS','客服专员',5,'0',''),
 (6,'FIN','财务',6,'0','');
 
--- 用户（密码 123456）
-SET @pwd = SHA2(CONCAT('123456','::laminar'),256);
+-- 用户（初始密码 Laminar@2026，首次登录强制修改）
+SET @pwd = SHA2(CONCAT('Laminar@2026','::laminar'),256);
 INSERT INTO `sys_user` (`user_id`,`username`,`password`,`nick_name`,`phone`,`email`,`gender`,`dept_id`,`post_id`,`user_type`,`status`,`create_time`,`remark`) VALUES
 (1,'admin',@pwd,'系统管理员','13800000001','admin@laminar.cn','0',1,1,'0','0',NOW(),'平台超级管理员'),
 (2,'manager',@pwd,'陈志强','13800000002','manager@laminar.cn','0',2,2,'1','0',NOW(),'维保经理'),
@@ -45,6 +45,7 @@ INSERT INTO `sys_user` (`user_id`,`username`,`password`,`nick_name`,`phone`,`ema
 (5,'regional1',@pwd,'黄建国','13800000005','huangjg@laminar.cn','0',2,3,'1','0',NOW(),'厦门区域主管'),
 (6,'hospital1',@pwd,'李敏','13800000006','limin@xmfy.cn','1',NULL,NULL,'2','0',NOW(),'厦门大学附属第一医院 设备科'),
 (7,'doctor1',@pwd,'张晓芸','13800000007','zhangxy@xmfy.cn','1',NULL,NULL,'2','0',NOW(),'厦门大学附属第一医院 手术室护士长');
+UPDATE `sys_user` SET `must_change_pwd`=1 WHERE `user_id` BETWEEN 1 AND 7;
 
 INSERT INTO `sys_user_role` (`user_id`,`role_id`) VALUES
 (1,1),(2,100),(3,102),(4,102),(5,101),(6,200),(7,201);
@@ -81,8 +82,6 @@ INSERT INTO `sys_dict_type` (`dict_id`,`dict_name`,`dict_type`,`status`,`remark`
 (28,'文档分类','doc_category','0',''),
 (29,'知识分类','knowledge_category','0',''),
 (30,'消息类型','message_type','0',''),
-(31,'预算科目','budget_subject','0',''),
-(32,'预算状态','budget_status','0',''),
 (33,'告警规则比较符','alarm_operator','0',''),
 (34,'工程师职称','engineer_title','0','');
 
@@ -153,10 +152,7 @@ INSERT INTO `sys_dict_data` (`dict_sort`,`dict_label`,`dict_value`,`dict_type`,`
 (3,'应急预案','emergency','knowledge_category',''),(4,'培训资料','training','knowledge_category',''),
 (1,'告警','alarm','message_type','danger'),(2,'工单','workorder','message_type','primary'),(3,'巡检','inspection','message_type','warning'),
 (4,'保养','maintenance','message_type','warning'),(5,'证书到期','cert','message_type','danger'),(6,'合同到期','contract','message_type','danger'),
-(7,'预算','budget','message_type','info'),(8,'系统','system','message_type','info'),
-(1,'人工成本','labor','budget_subject',''),(2,'备件耗材','parts','budget_subject',''),(3,'差旅交通','travel','budget_subject',''),
-(4,'外包服务','outsource','budget_subject',''),(5,'设备采购','purchase','budget_subject',''),(6,'其他','other','budget_subject',''),
-(1,'草稿','0','budget_status','info'),(2,'已生效','1','budget_status','success'),(3,'已关闭','2','budget_status','info'),
+(8,'系统','system','message_type','info'),
 (1,'大于','gt','alarm_operator',''),(2,'大于等于','ge','alarm_operator',''),(3,'小于','lt','alarm_operator',''),
 (4,'小于等于','le','alarm_operator',''),(5,'等于','eq','alarm_operator',''),(6,'区间','between','alarm_operator',''),(7,'离线','offline','alarm_operator',''),
 (1,'助理工程师','assistant','engineer_title',''),(2,'中级工程师','intermediate','engineer_title',''),
@@ -167,3 +163,4 @@ INSERT INTO `sys_dict_data` (`dict_sort`,`dict_label`,`dict_value`,`dict_type`,`
 (3,'自控','自控','skill_category',''),(4,'运维','运维','skill_category',''),
 (5,'安全','安全','skill_category',''),(6,'管理','管理','skill_category',''),
 (7,'通用','通用','skill_category','');
+

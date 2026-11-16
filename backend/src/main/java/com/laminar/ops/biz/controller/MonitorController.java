@@ -29,8 +29,18 @@ public class MonitorController {
 
     @GetMapping("/overview")
     @Perm("device:realtime:view")
-    public Result<Map<String, Object>> overview() {
-        return Result.ok(monitorService.overview(dataScope.visibleHospitalIds(AuthContext.require())));
+    public Result<Map<String, Object>> overview(@RequestParam(required = false) Long hospitalId,
+                                                @RequestParam(required = false) Long campusId,
+                                                @RequestParam(required = false) Long departmentId) {
+        com.laminar.ops.security.LoginUser user = AuthContext.require();
+        List<Long> visible = dataScope.visibleHospitalIds(user);
+        if (hospitalId != null) {
+            if (!user.isSuperAdmin() && visible != null && !visible.contains(hospitalId)) {
+                throw BizException.forbidden("无权查看该医院设备");
+            }
+            visible = List.of(hospitalId);
+        }
+        return Result.ok(monitorService.overview(visible, campusId, departmentId));
     }
 
     @GetMapping("/equipment/{id}")

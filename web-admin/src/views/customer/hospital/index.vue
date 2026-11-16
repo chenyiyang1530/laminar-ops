@@ -46,7 +46,7 @@
 
       <el-table v-loading="loading" :data="list" stripe @selection-change="(v) => (selection = v)">
         <el-table-column type="selection" width="46" />
-        <el-table-column type="index" label="序号" width="62" align="center" :index="i => (query.pageNum - 1) * query.pageSize + i + 1" />
+        <el-table-column type="index" label="序号" width="62" align="center" :index="i => i + 1" />
         <el-table-column v-if="isVisible('hospitalName')" label="医院" min-width="230">
           <template #default="{ row }">
             <div class="hospital-cell">
@@ -57,6 +57,9 @@
               </div>
             </div>
           </template>
+        </el-table-column>
+        <el-table-column v-if="isVisible('serviceCompanyNames')" prop="serviceCompanyNames" label="合作公司" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.serviceCompanyNames || row.companyName || '—' }}</template>
         </el-table-column>
         <el-table-column v-if="isVisible('grade')" label="等级" min-width="100">
           <template #default="{ row }">
@@ -83,7 +86,7 @@
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
             <el-button v-if="canEditCustomer" link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="primary" @click="$router.push({ path: '/customer/campus', query: { hospitalId: row.hospitalId } })">院区</el-button>
+            <el-button link type="primary" @click="$router.push({ path: '/customer/archive', query: { tab: 'campus', hospitalId: row.hospitalId } })">院区</el-button>
             <el-button v-if="canEditCustomer && store.hasPerm('customer:hospital:remove')" link type="danger" @click="removeOne(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -103,12 +106,22 @@
     <el-dialog v-model="dialog" :title="form.hospitalId ? '编辑医院' : '新增医院'" width="720px" destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="92px">
         <el-row :gutter="16">
+          <el-col v-if="!store.companyId" :span="12">
+            <el-form-item label="合作公司">
+              <el-select v-model="form.companyIds" multiple filterable style="width: 100%" placeholder="选择共同维保的公司">
+                <el-option v-for="c in companies" :key="c.value" :label="c.label" :value="c.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
           <el-col :span="12">
             <el-form-item label="医院名称" prop="hospitalName"><el-input v-model="form.hospitalName" /></el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="医院编码">
-              <el-input :model-value="form.hospitalCode" placeholder="如 HXM001（自动转大写）" @input="onCodeInput" />
+              <div class="code-row">
+                <el-input :model-value="form.hospitalCode" placeholder="如 FJ_ZZ_ZYY（省_市_医院）" @input="onCodeInput" />
+                <el-button link type="primary" @click="generateCode">生成下划线</el-button>
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -145,7 +158,7 @@
           <el-col :span="12">
             <el-form-item label="联系电话"><el-input v-model="form.phone" /></el-form-item>
           </el-col>
-          <el-col :span="24">
+          <el-col :span="12">
             <el-form-item label="详细地址">
               <el-input v-model="form.address" placeholder="可手动输入，或点击右侧按钮在地图上选址">
                 <template #append>
@@ -168,7 +181,7 @@
               </el-radio-group>
             </el-form-item>
           </el-col>
-          <el-col :span="24">
+          <el-col :span="12">
             <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
           </el-col>
         </el-row>
@@ -310,6 +323,7 @@ import { downloadCsv } from '@/utils/csv'
 
 const hospitalColumns = [
   { key: 'hospitalName', label: '医院' },
+  { key: 'serviceCompanyNames', label: '合作公司' },
   { key: 'grade', label: '等级' },
   { key: 'hospitalType', label: '类型' },
   { key: 'regionName', label: '所属区域' },
@@ -318,18 +332,19 @@ const hospitalColumns = [
   { key: 'status', label: '状态' }
 ]
 const hospitalDefaultKeys = hospitalColumns.map((c) => c.key)
-const { visible: visibleCols, reset: resetCols } = useColumnPrefs('laminar_cols_hospital', hospitalDefaultKeys)
+const { visible: visibleCols, reset: resetCols } = useColumnPrefs('laminar_cols_hospital_v2', hospitalDefaultKeys)
 const exporting = ref(false)
 const isVisible = (key) => visibleCols.value.includes(key)
 
 const store = useUserStore()
-const canEditCustomer = computed(() => !store.companyId)
+const canEditCustomer = computed(() => store.hasPerm('customer:hospital:add') || store.hasPerm('customer:hospital:edit'))
 const loading = ref(false)
 const saving = ref(false)
 const list = ref([])
 const total = ref(0)
 const selection = ref([])
 const regions = ref([])
+const companies = ref([])
 const dialog = ref(false)
 const formRef = ref()
 const amapPicker = ref()
@@ -428,6 +443,28 @@ function onCodeInput(v) {
   form.hospitalCode = String(v || '').toUpperCase().replace(/\s+/g, '')
 }
 
+function generateCode() {
+  let raw = String(form.hospitalCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (!raw) {
+    ElMessage.warning('请先输入医院简称，例如 ZYY')
+    return
+  }
+  if (raw.length >= 4) {
+    form.hospitalCode = `${raw.slice(0, 2)}_${raw.slice(2, 4)}_${raw.slice(4)}`
+    return
+  }
+  const region = regions.value.find((r) => String(r.regionId) === String(form.regionId))
+  let regionCode = String(region?.regionCode || '').toUpperCase().replace(/[^A-Z0-9_]/g, '')
+  if (regionCode && !regionCode.includes('_') && regionCode.length > 2) {
+    regionCode = `${regionCode.slice(0, 2)}_${regionCode.slice(2)}`
+  }
+  if (regionCode) {
+    form.hospitalCode = `${regionCode}_${raw}`
+  } else {
+    ElMessage.warning('请先选择所属区域，或输入完整的省市医院编码')
+  }
+}
+
 function openMap() {
   amapPicker.value?.open({
     address: form.address,
@@ -444,7 +481,7 @@ function onLocationSelect(location) {
 
 function openAdd() {
   Object.keys(form).forEach((k) => delete form[k])
-  Object.assign(form, { status: '0', nature: 'public', hospitalType: 'general' })
+  Object.assign(form, { status: '0', nature: 'public', hospitalType: 'general', companyIds: [] })
   dialog.value = true
 }
 
@@ -526,11 +563,17 @@ onMounted(async () => {
   await loadDicts()
   const r = await regionOptions()
   regions.value = r.data
+  if (!store.companyId) {
+    const c = await request.get('/crud/company/options')
+    companies.value = c.data || []
+  }
   load()
 })
 </script>
 
 <style scoped>
+.code-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+.code-row :deep(.el-input) { flex: 1; }
 .search-form { margin-bottom: 4px; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin: 6px 0 12px; }
 .toolbar-right { display: flex; align-items: center; gap: 10px; color: #8494a8; font-size: 12px; }

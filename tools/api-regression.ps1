@@ -1,7 +1,7 @@
 param(
   [string]$BaseUrl = 'http://127.0.0.1:8081',
   [string]$CompanyCode = 'TEST-OPS',
-  [string]$Password = '123456'
+  [string]$Password = $env:TEST_PASSWORD
 )
 
 $ErrorActionPreference = 'Stop'

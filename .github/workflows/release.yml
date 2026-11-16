@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web-admin/package-lock.json
+
+      - name: Test backend
+        run: mvn -B test
+        working-directory: backend
+      - name: Build backend
+        run: mvn -B -DskipTests package
+        working-directory: backend
+
+      - name: Build frontend
+        run: |
+          npm ci
+          npm run test:unit
+          npm run build
+          npm run build:portal
+        working-directory: web-admin
+
+      - name: Package release assets
+        run: |
+          cp backend/target/laminar-ops-1.0.0.jar laminar-ops.jar
+          cd web-admin
+          zip -qr ../laminar-ops-admin.zip dist
+          zip -qr ../laminar-ops-portal.zip dist-portal
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            laminar-ops.jar
+            laminar-ops-admin.zip
+            laminar-ops-portal.zip
+          generate_release_notes: true

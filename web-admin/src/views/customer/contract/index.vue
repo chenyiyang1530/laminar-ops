@@ -12,7 +12,7 @@
           type="info"
           :closable="false"
           show-icon
-          title="按科室、洁净区域或设备限定本合同的服务范围；不限定则默认全院。多家公司可按不同范围分别签约。"
+          title="按院区、科室或设备限定本合同的服务范围；不限定则默认全院。多家公司可按不同范围分别签约。"
           class="scope-tip"
         />
         <el-form label-width="100px" class="scope-form">
@@ -20,14 +20,14 @@
             <el-checkbox v-model="wholeHospital">全院（不限定范围）</el-checkbox>
           </el-form-item>
           <template v-if="!wholeHospital">
+            <el-form-item label="院区">
+              <el-select v-model="campusIds" multiple filterable collapse-tags style="width: 100%" placeholder="选择服务院区">
+                <el-option v-for="c in campuses" :key="c.campusId" :label="c.campusName" :value="c.campusId" />
+              </el-select>
+            </el-form-item>
             <el-form-item label="科室">
               <el-select v-model="departmentIds" multiple filterable collapse-tags style="width: 100%" placeholder="选择服务科室">
                 <el-option v-for="d in departments" :key="d.departmentId" :label="d.departmentName" :value="d.departmentId" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="洁净区域">
-              <el-select v-model="areaIds" multiple filterable collapse-tags style="width: 100%" placeholder="选择服务洁净区域">
-                <el-option v-for="a in areas" :key="a.areaId" :label="a.areaName" :value="a.areaId" />
               </el-select>
             </el-form-item>
             <el-form-item label="设备">
@@ -58,10 +58,10 @@ const scopeSaving = ref(false)
 const current = ref({})
 const wholeHospital = ref(false)
 const departmentIds = ref([])
-const areaIds = ref([])
+const campusIds = ref([])
 const equipmentIds = ref([])
 const departments = ref([])
-const areas = ref([])
+const campuses = ref([])
 const equipments = ref([])
 
 async function openScope(row) {
@@ -70,23 +70,23 @@ async function openScope(row) {
   scopeLoading.value = true
   wholeHospital.value = false
   departmentIds.value = []
-  areaIds.value = []
+  campusIds.value = []
   equipmentIds.value = []
   try {
     const hospitalId = row.hospitalId
-    const [scopes, dep, area, eq] = await Promise.all([
+    const [scopes, dep, eq, cam] = await Promise.all([
       request.get('/contract-scope/' + row.contractId),
       request.get('/crud/department/page', { params: { hospitalId, pageNum: 1, pageSize: 500 } }),
-      request.get('/crud/cleanArea/page', { params: { hospitalId, pageNum: 1, pageSize: 500 } }),
-      request.get('/crud/equipment/page', { params: { hospitalId, pageNum: 1, pageSize: 500 } })
+      request.get('/crud/equipment/page', { params: { hospitalId, pageNum: 1, pageSize: 500 } }),
+      request.get('/crud/campus/page', { params: { hospitalId, pageNum: 1, pageSize: 200 } })
     ])
     departments.value = dep.data.records || []
-    areas.value = area.data.records || []
     equipments.value = eq.data.records || []
+    campuses.value = cam.data.records || []
     const list = scopes.data || []
     wholeHospital.value = list.length === 0 || list.some((s) => s.scopeType === 'hospital')
+    campusIds.value = list.filter((s) => s.scopeType === 'campus').map((s) => s.scopeValue)
     departmentIds.value = list.filter((s) => s.scopeType === 'department').map((s) => s.scopeValue)
-    areaIds.value = list.filter((s) => s.scopeType === 'area').map((s) => s.scopeValue)
     equipmentIds.value = list.filter((s) => s.scopeType === 'equipment').map((s) => s.scopeValue)
   } finally {
     scopeLoading.value = false
@@ -98,8 +98,8 @@ async function saveScope() {
   if (wholeHospital.value) {
     scopes.push({ scopeType: 'hospital', scopeValue: null })
   } else {
+    campusIds.value.forEach((id) => scopes.push({ scopeType: 'campus', scopeValue: id }))
     departmentIds.value.forEach((id) => scopes.push({ scopeType: 'department', scopeValue: id }))
-    areaIds.value.forEach((id) => scopes.push({ scopeType: 'area', scopeValue: id }))
     equipmentIds.value.forEach((id) => scopes.push({ scopeType: 'equipment', scopeValue: id }))
     if (!scopes.length) {
       ElMessage.warning('请选择服务范围，或勾选全院')

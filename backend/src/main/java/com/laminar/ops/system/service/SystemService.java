@@ -26,38 +26,54 @@ public class SystemService {
 
     private final JdbcTemplate jdbc;
     private final DataScopeService dataScope;
+    private final SysConfigService sysConfig;
 
     private static final List<String> RESERVED_ROLE_KEYS = List.of(
             "super_admin", "hospital_admin", "hospital_dept",
             "maintenance_manager", "regional_manager", "engineer",
-            "company_executive", "department_staff");
+            "company_executive", "department_staff", "company_admin", "company_sub_admin");
+
+    private static final Set<Long> STANDARD_ASSIGNABLE = Set.of(100L, 101L, 102L, 103L, 104L, 213L, 214L);
 
     /** 区域主管等业务下拉：仅内部账号（不含院方），按当前公司隔离 */
     public List<Map<String, Object>> userOptions() {
         Long companyId = dataScope.companyId(AuthContext.require());
         if (companyId == null) {
             return jdbc.queryForList(
-                    "select u.user_id as `value`, concat(u.nick_name, '（', u.username, '）') as `label` " +
-                            "from sys_user u where u.status='0' and u.user_type <> '2' order by u.user_id");
+                    "select u.user_id as `value`, concat(u.nick_name, '（', coalesce(d.dept_name, '未分配部门'), '）') as `label` " +
+                            "from sys_user u left join sys_dept d on d.dept_id=u.dept_id " +
+                            "where u.status='0' and u.user_type <> '2' order by u.user_id");
         }
         return jdbc.queryForList(
-                "select u.user_id as `value`, concat(u.nick_name, '（', u.username, '）') as `label` " +
-                        "from sys_user u where u.status='0' and u.user_type <> '2' and u.company_id=? order by u.user_id",
+                "select u.user_id as `value`, concat(u.nick_name, '（', coalesce(d.dept_name, '未分配部门'), '）') as `label` " +
+                        "from sys_user u left join sys_dept d on d.dept_id=u.dept_id " +
+                        "where u.status='0' and u.user_type <> '2' and u.company_id=? order by u.user_id",
                 companyId);
     }
 
     /** 公司内部可分配角色：平台核心角色 + 本公司自定义角色 */
     public List<Map<String, Object>> assignableRoles() {
-        Long companyId = dataScope.companyId(AuthContext.require());
-        if (companyId == null) {
-            return jdbc.queryForList(
-                    "select role_id as `roleId`, role_name as `roleName` from sys_role " +
-                            "where company_id is null and role_id in (100,101,102,104) order by role_id");
-        }
-        return jdbc.queryForList(
-                "select role_id as `roleId`, role_name as `roleName` from sys_role " +
-                        "where (company_id = ?) or (company_id is null and role_id in (100,101,102,104)) " +
-                        "order by role_id", companyId);
+        LoginUser user = AuthContext.require();
+        Long companyId = dataScope.companyId(user);
+        List<Map<String, Object>> roles = jdbc.queryForList(
+                "select role_id as `roleId`, role_name as `roleName`, role_key as `roleKey`, " +
+                        "company_id as `companyId` from sys_role where status='0' order by sort, role_id");
+        int actorRank = userRank(user);
+        return roles.stream().filter(role -> {
+            Long roleCompany = role.get("companyId") == null ? null : ((Number) role.get("companyId")).longValue();
+            if (user.isSuperAdmin()) return true;
+            if (roleCompany != null && (companyId == null || !companyId.equals(roleCompany))) return false;
+            if (roleCompany == null) {
+                Long roleId = ((Number) role.get("roleId")).longValue();
+                if (!STANDARD_ASSIGNABLE.contains(roleId)) return false;
+            }
+            return roleRank(String.valueOf(role.get("roleKey"))) < actorRank;
+        }).map(role -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("roleId", role.get("roleId"));
+            item.put("roleName", role.get("roleName"));
+            return item;
+        }).toList();
     }
 
     public List<Map<String, Object>> postOptions() {
@@ -75,20 +91,24 @@ public class SystemService {
         Long companyId = dataScope.companyId(AuthContext.require());
         if (companyId == null) companyId = requestedCompanyId;
         StringBuilder sql = new StringBuilder(
-                "select engineer_id as `value`, engineer_name as `label`, user_id as `boundUserId`, " +
-                        "phone, company_id as `companyId` from biz_engineer where status='0' ");
+                "select e.engineer_id as `value`, e.engineer_name as `label`, e.user_id as `boundUserId`, " +
+                        "coalesce(au.phone,e.phone) as `phone`, e.company_id as `companyId`, " +
+                        "e.region_id as `regionId`, d.dept_id as `deptId` " +
+                        "from biz_engineer e left join sys_user au on au.user_id=e.user_id " +
+                        "left join sys_dept d on d.company_id=e.company_id and d.region_id=e.region_id " +
+                        "where e.status='0' ");
         List<Object> args = new ArrayList<>();
         if (companyId != null) {
-            sql.append(" and company_id=? ");
+            sql.append(" and e.company_id=? ");
             args.add(companyId);
         }
         if (userId != null) {
-            sql.append(" and (user_id is null or user_id=?) ");
+            sql.append(" and (e.user_id is null or e.user_id=?) ");
             args.add(userId);
         } else {
-            sql.append(" and user_id is null ");
+            sql.append(" and e.user_id is null ");
         }
-        sql.append(" order by engineer_name");
+        sql.append(" order by e.engineer_name");
         return jdbc.queryForList(sql.toString(), args.toArray());
     }
 
@@ -97,17 +117,36 @@ public class SystemService {
         StringBuilder where = new StringBuilder(" where 1=1 ");
         String username = params.get("username");
         String nickName = params.get("nickName");
+        String phone = params.get("phone");
+        String email = params.get("email");
         String status = params.get("status");
         String deptId = params.get("deptId");
+        String roleId = params.get("roleId");
+        String postId = params.get("postId");
+        String companyIdParam = params.get("companyId");
+        String userType = params.get("userType");
         if (notBlank(username)) { where.append(" and u.username like ? "); args.add("%" + username.trim() + "%"); }
         if (notBlank(nickName)) { where.append(" and u.nick_name like ? "); args.add("%" + nickName.trim() + "%"); }
+        if (notBlank(phone)) { where.append(" and u.phone like ? "); args.add("%" + phone.trim() + "%"); }
+        if (notBlank(email)) { where.append(" and u.email like ? "); args.add("%" + email.trim() + "%"); }
         if (notBlank(status)) { where.append(" and u.status = ? "); args.add(status); }
         if (notBlank(deptId)) { where.append(" and u.dept_id = ? "); args.add(deptId); }
-        where.append(" and u.user_type <> '2' ");
+        if (notBlank(postId)) { where.append(" and u.post_id = ? "); args.add(postId); }
+        if (notBlank(roleId)) {
+            where.append(" and exists (select 1 from sys_user_role ur where ur.user_id=u.user_id and ur.role_id=?) ");
+            args.add(roleId);
+        }
+        if (notBlank(userType)) {
+            where.append(" and u.user_type = ? ");
+            args.add(userType);
+        }
         Long companyId = dataScope.companyId(AuthContext.require());
         if (companyId != null) {
             where.append(" and u.company_id = ? ");
             args.add(companyId);
+        } else if (notBlank(companyIdParam)) {
+            where.append(" and u.company_id = ? ");
+            args.add(companyIdParam);
         }
         Long total = jdbc.queryForObject("select count(*) from sys_user u" + where, Long.class, args.toArray());
         List<Object> pageArgs = new ArrayList<>(args);
@@ -118,12 +157,15 @@ public class SystemService {
                         "u.dept_id as `deptId`, u.post_id as `postId`, u.company_id as `companyId`, u.user_type as `userType`, u.status, " +
                         "date_format(u.login_date,'%Y-%m-%d %H:%i') as `loginDate`, u.login_ip as `loginIp`, " +
                         "d.dept_name as `deptName`, p.post_name as `postName`, c.company_name as `companyName`, " +
+                        "hh.hospital_name as `hospitalName`, " +
                         "eng.engineer_id as `engineerId`, eng.engineer_name as `engineerName`, " +
                         "(select group_concat(r.role_name separator '、') from sys_user_role ur join sys_role r on r.role_id=ur.role_id " +
                         "where ur.user_id=u.user_id) as `roleNames` " +
                         "from sys_user u left join sys_dept d on d.dept_id=u.dept_id left join sys_post p on p.post_id=u.post_id " +
                         "left join biz_company c on c.company_id=u.company_id " +
                         "left join biz_engineer eng on eng.user_id=u.user_id " +
+                        "left join biz_hospital_user hu on hu.user_id=u.user_id " +
+                        "left join biz_hospital hh on hh.hospital_id=hu.hospital_id " +
                         where + " order by u.user_id limit ? offset ?", pageArgs.toArray());
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("records", records);
@@ -144,38 +186,74 @@ public class SystemService {
             throw BizException.forbidden("无权访问其他公司用户");
         }
         user.put("roleIds", jdbc.queryForList("select role_id from sys_user_role where user_id=?", Long.class, id));
+        List<Long> hospitalIds = jdbc.queryForList(
+                "select hospital_id from biz_hospital_user where user_id=?", Long.class, id);
+        user.put("hospitalId", hospitalIds.isEmpty() ? null : hospitalIds.get(0));
+        List<Long> hospitalDeptIds = jdbc.queryForList(
+                "select department_id from biz_hospital_user where user_id=?", Long.class, id);
+        user.put("hospitalDepartmentId", hospitalDeptIds.isEmpty() ? null : hospitalDeptIds.get(0));
         return user;
     }
 
     @Transactional
     public void saveUser(Map<String, Object> body) {
-        String username = str(body.get("username"));
+        String username = str(body.get("username")).trim();
         if (username.isBlank()) throw BizException.badRequest("请填写登录账号");
+        if (!username.matches("^[A-Za-z][A-Za-z0-9_]{2,31}$")) {
+            throw BizException.badRequest("账号需以字母开头，3-32 位字母、数字或下划线");
+        }
+        String nickName = validateNickName(body.get("nickName"));
+        Object roleIds = body.get("roleIds");
+        boolean hospitalRole = hasHospitalRole(roleIds);
+        Long hospitalId = longOf(body.get("hospitalId"));
+        Long hospitalDepartmentId = longOf(body.get("hospitalDepartmentId"));
+        if (hospitalRole && hospitalId == null) {
+            throw BizException.badRequest("院方角色必须选择所属医院");
+        }
+        if (hospitalRole && hasRoleKey(roleIds, "hospital_sub_admin") && hospitalDepartmentId == null) {
+            throw BizException.badRequest("院方子管理员必须选择所属科室");
+        }
+        if (hospitalDepartmentId != null) validateHospitalDepartment(hospitalId, hospitalDepartmentId);
         Long currentCompany = dataScope.companyId(AuthContext.require());
-        Long companyId = currentCompany != null ? currentCompany : longOf(body.get("companyId"));
-        if (companyId == null) throw BizException.badRequest("请选择所属公司");
-        Integer exists = jdbc.queryForObject(
-                "select count(*) from sys_user where username=? and company_id=?",
+        Long companyId = hospitalRole ? null : (currentCompany != null ? currentCompany : longOf(body.get("companyId")));
+        if (companyId == null && !hospitalRole) throw BizException.badRequest("请选择所属公司");
+        if (hospitalId != null) validateHospitalCompany(hospitalId, companyId);
+        Integer exists = hospitalRole
+                ? jdbc.queryForObject("select count(*) from sys_user where username=?", Integer.class, username)
+                : jdbc.queryForObject("select count(*) from sys_user where username=? and company_id=?",
                 Integer.class, username, companyId);
-        if (exists != null && exists > 0) throw BizException.badRequest("本公司已存在该登录账号");
+        if (exists != null && exists > 0) throw BizException.badRequest("已存在该登录账号");
         String phone = normalizeContact(body.get("phone"));
         String email = normalizeEmail(body.get("email"));
         validateContactUnique(phone, email, null);
-        validateUserOrg(companyId, body.get("deptId"), body.get("postId"));
+        if (!hospitalRole) {
+            validateUserOrg(companyId, body.get("deptId"), body.get("postId"));
+            validateUserEngineerBinding(companyId, null, body);
+        }
+        String userType = hospitalRole ? "2" : "1";
         jdbc.update("insert into sys_user(username,password,must_change_pwd,nick_name,phone,email,gender,dept_id,post_id,company_id,user_type,status,create_time) " +
-                        "values(?,?,1,?,?,?,?,?,?,?,'1','0',now())", username, PasswordUtil.encode("123456"),
-                str(body.get("nickName")), phone, email,
-                str(body.getOrDefault("gender", "0")), body.get("deptId"), body.get("postId"), companyId);
-        Long id = jdbc.queryForObject(
-                "select user_id from sys_user where username=? and company_id=?", Long.class, username, companyId);
-        validateRoleAssignments(companyId, body.get("roleIds"));
-        saveRoles(id, body.get("roleIds"));
-        bindEngineer(id, companyId, body.get("engineerId"));
+                        "values(?,?,1,?,?,?,?,?,?,?,?,'0',now())", username, PasswordUtil.encode(initialPassword()),
+                nickName, phone, email,
+                str(body.getOrDefault("gender", "0")), hospitalRole ? null : body.get("deptId"),
+                hospitalRole ? null : body.get("postId"), companyId, userType);
+        Long id = hospitalRole
+                ? jdbc.queryForObject("select user_id from sys_user where username=? order by user_id desc limit 1", Long.class, username)
+                : jdbc.queryForObject("select user_id from sys_user where username=? and company_id=?", Long.class, username, companyId);
+        validateRoleAssignments(companyId, roleIds);
+        saveRoles(id, roleIds);
+        if (!hospitalRole) {
+            applyRoleDefaultDept(id, companyId);
+            bindEngineer(id, companyId, body.get("engineerId"));
+        }
+        syncHospitalUser(id, hospitalId, hospitalDepartmentId, roleIds, companyId);
+        if (!hospitalRole) syncEngineerIdentity(id);
     }
 
     @Transactional
     public void updateUser(Map<String, Object> body) {
         Long id = longOf(body.get("userId"));
+        assertCanManageUser(id, true);
+        String nickName = validateNickName(body.get("nickName"));
         Long currentCompany = dataScope.companyId(AuthContext.require());
         Object targetCompany = jdbc.queryForObject("select company_id from sys_user where user_id=?", Object.class, id);
         if (currentCompany != null && (targetCompany == null
@@ -184,11 +262,30 @@ public class SystemService {
         }
         Long companyId = currentCompany != null ? currentCompany : longOf(body.get("companyId"));
         if (companyId == null && targetCompany != null) companyId = ((Number) targetCompany).longValue();
-        if (companyId == null) throw BizException.badRequest("请选择所属公司");
+        Object roleIds = body.get("roleIds");
+        boolean hospitalRole = hasHospitalRole(roleIds);
+        Long hospitalId = body.containsKey("hospitalId") ? longOf(body.get("hospitalId"))
+                : jdbc.queryForList("select hospital_id from biz_hospital_user where user_id=?", Long.class, id)
+                .stream().findFirst().orElse(null);
+        Long hospitalDepartmentId = body.containsKey("hospitalDepartmentId") ? longOf(body.get("hospitalDepartmentId"))
+                : jdbc.queryForList("select department_id from biz_hospital_user where user_id=?", Long.class, id)
+                .stream().findFirst().orElse(null);
+        if (hospitalRole && hasRoleKey(roleIds, "hospital_sub_admin") && hospitalDepartmentId == null) {
+            throw BizException.badRequest("院方子管理员必须选择所属科室");
+        }
+        if (hospitalDepartmentId != null) validateHospitalDepartment(hospitalId, hospitalDepartmentId);
+        if (hospitalRole && hospitalId == null) {
+            throw BizException.badRequest("院方角色必须选择所属医院");
+        }
+        if (companyId == null && !hospitalRole) throw BizException.badRequest("请选择所属公司");
+        if (hospitalRole) companyId = null;
         String phone = normalizeContact(body.get("phone"));
         String email = normalizeEmail(body.get("email"));
         validateContactUnique(phone, email, id);
-        validateUserOrg(companyId, body.get("deptId"), body.get("postId"));
+        if (!hospitalRole) {
+            validateUserOrg(companyId, body.get("deptId"), body.get("postId"));
+            validateUserEngineerBinding(companyId, id, body);
+        }
         Map<String, Object> old = jdbc.queryForMap(
                 "select phone,email,phone_verified,email_verified from sys_user where user_id=?", id);
         int phoneVerified = Objects.equals(normalizeContact(old.get("phone")), phone) && intVal(old.get("phone_verified")) == 1 ? 1 : 0;
@@ -197,17 +294,27 @@ public class SystemService {
                         "phone_verified=?,phone_verified_at=case when ?=1 then coalesce(phone_verified_at,now()) else null end," +
                         "email_verified=?,email_verified_at=case when ?=1 then coalesce(email_verified_at,now()) else null end " +
                         "where user_id=?",
-                str(body.get("nickName")), phone, email,
-                str(body.getOrDefault("gender", "0")), body.get("deptId"), body.get("postId"),
+                nickName, phone, email,
+                str(body.getOrDefault("gender", "0")), hospitalRole ? null : body.get("deptId"),
+                hospitalRole ? null : body.get("postId"),
                 companyId, str(body.getOrDefault("status", "0")),
                 phoneVerified, phoneVerified, emailVerified, emailVerified, id);
         if (body.containsKey("roleIds")) {
-            validateRoleAssignments(companyId, body.get("roleIds"));
+            validateRoleAssignments(companyId, roleIds);
             jdbc.update("delete from sys_user_role where user_id=?", id);
-            saveRoles(id, body.get("roleIds"));
+            saveRoles(id, roleIds);
         }
-        if (body.containsKey("engineerId")) {
-            bindEngineer(id, companyId, body.get("engineerId"));
+        if (hospitalId != null) validateHospitalCompany(hospitalId, companyId);
+        if (body.containsKey("roleIds") || body.containsKey("hospitalId")) {
+            jdbc.update("update sys_user set user_type=? where user_id=?", hospitalRole ? "2" : "1", id);
+            syncHospitalUser(id, hospitalId, hospitalDepartmentId, roleIds, companyId);
+        }
+        if (!hospitalRole) {
+            applyRoleDefaultDept(id, companyId);
+            if (body.containsKey("engineerId")) {
+                bindEngineer(id, companyId, body.get("engineerId"));
+            }
+            syncEngineerIdentity(id);
         }
     }
 
@@ -215,6 +322,7 @@ public class SystemService {
     public void deleteUser(Long[] ids) {
         for (Long id : ids) {
             if (id == 1L) throw BizException.badRequest("超级管理员不可删除");
+            assertCanManageUser(id, false);
             jdbc.update("update biz_engineer set user_id=null where user_id=?", id);
             jdbc.update("delete from sys_user_role where user_id=?", id);
             jdbc.update("delete from sys_user where user_id=?", id);
@@ -222,11 +330,18 @@ public class SystemService {
     }
 
     public void resetPwd(Long id) {
+        assertCanManageUser(id, false);
         jdbc.update("update sys_user set password=?, must_change_pwd=1, login_fail_count=0, lock_until=null where user_id=?",
-                PasswordUtil.encode("123456"), id);
+                PasswordUtil.encode(initialPassword()), id);
+    }
+
+    private String initialPassword() {
+        String value = sysConfig.value("sys.user.initPassword", "Laminar@2026");
+        return value == null || value.isBlank() ? "Laminar@2026" : value;
     }
 
     public void changeUserStatus(Long id, String status) {
+        assertCanManageUser(id, false);
         jdbc.update("update sys_user set status=? where user_id=?", status, id);
     }
 
@@ -251,19 +366,151 @@ public class SystemService {
         } catch (org.springframework.dao.DuplicateKeyException e) {
             throw BizException.badRequest("该工程师已绑定其他用户");
         }
+        jdbc.update("update sys_user u join biz_engineer e on e.user_id=u.user_id " +
+                "left join sys_dept d on d.company_id=e.company_id and d.region_id=e.region_id " +
+                "set u.dept_id=d.dept_id where u.user_id=?", userId);
+    }
+
+    private void syncEngineerIdentity(Long userId) {
+        jdbc.update("update biz_engineer e join sys_user u on u.user_id=e.user_id " +
+                "set e.engineer_name=u.nick_name, e.phone=u.phone where u.user_id=?", userId);
     }
 
     private void validateRoleAssignments(Long companyId, Object roleIds) {
         if (!(roleIds instanceof List<?> list)) return;
+        LoginUser user = AuthContext.require();
+        int actorRank = userRank(user);
         for (Object r : list) {
             Long roleId = ((Number) r).longValue();
-            Integer allowed = jdbc.queryForObject(
-                    "select count(*) from sys_role where role_id=? and " +
-                            "(company_id=? or (company_id is null and role_id in (100,101,102,104)))",
-                    Integer.class, roleId, companyId);
-            if (allowed == null || allowed == 0) {
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                    "select role_key, company_id from sys_role where role_id=?", roleId);
+            if (rows.isEmpty()) throw BizException.badRequest("无权分配该角色");
+            if (user.isSuperAdmin()) continue;
+            Map<String, Object> role = rows.get(0);
+            Long roleCompany = role.get("company_id") == null ? null : ((Number) role.get("company_id")).longValue();
+            if (roleCompany != null && (companyId == null || !companyId.equals(roleCompany))) {
                 throw BizException.badRequest("无权分配该角色");
             }
+            if (roleCompany == null && !STANDARD_ASSIGNABLE.contains(roleId)) {
+                throw BizException.badRequest("无权分配该角色");
+            }
+            if (roleRank(String.valueOf(role.get("role_key"))) >= actorRank) {
+                throw BizException.badRequest("无权分配同级或更高权限角色");
+            }
+        }
+    }
+
+    private int userRank(LoginUser user) {
+        if (user == null) return 0;
+        if (user.isSuperAdmin()) return 1000;
+        int rank = 0;
+        if (user.getRoleKeys() != null) {
+            for (String key : user.getRoleKeys()) rank = Math.max(rank, roleRank(key));
+        }
+        return rank;
+    }
+
+    private boolean hasHospitalRole(Object roleIds) {
+        if (!(roleIds instanceof List<?> list)) return false;
+        for (Object item : list) {
+            if (item == null) continue;
+            List<String> keys = jdbc.queryForList(
+                    "select role_key from sys_role where role_id=?", String.class,
+                    Long.valueOf(String.valueOf(item)));
+            for (String key : keys) {
+                if (key != null && key.startsWith("hospital_")) return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasRoleKey(Object roleIds, String roleKey) {
+        if (!(roleIds instanceof List<?> list)) return false;
+        for (Object item : list) {
+            if (item == null) continue;
+            Integer count = jdbc.queryForObject(
+                    "select count(*) from sys_role where role_id=? and role_key=?",
+                    Integer.class, Long.valueOf(String.valueOf(item)), roleKey);
+            if (count != null && count > 0) return true;
+        }
+        return false;
+    }
+
+    private void validateHospitalDepartment(Long hospitalId, Long departmentId) {
+        if (hospitalId == null) throw BizException.badRequest("请先选择院方医院");
+        Integer count = jdbc.queryForObject(
+                "select count(*) from biz_department where department_id=? and hospital_id=?",
+                Integer.class, departmentId, hospitalId);
+        if (count == null || count == 0) {
+            throw BizException.badRequest("所选科室不属于该医院");
+        }
+    }
+
+    private void validateHospitalCompany(Long hospitalId, Long companyId) {
+        Integer count;
+        if (companyId == null) {
+            count = jdbc.queryForObject(
+                    "select count(*) from biz_hospital where hospital_id=? and status='0'",
+                    Integer.class, hospitalId);
+        } else {
+            count = jdbc.queryForObject(
+                    "select count(*) from biz_company_hospital where hospital_id=? and company_id=?",
+                    Integer.class, hospitalId, companyId);
+        }
+        if (count == null || count == 0) {
+            throw BizException.badRequest("所选医院不属于当前公司");
+        }
+    }
+
+    private void syncHospitalUser(Long userId, Long hospitalId, Long hospitalDepartmentId, Object roleIds, Long companyId) {
+        jdbc.update("delete from biz_hospital_user where user_id=?", userId);
+        if (hospitalId == null) return;
+        String roleType = hasRoleKey(roleIds, "hospital_admin") ? "admin"
+                : hasRoleKey(roleIds, "hospital_sub_admin") ? "sub_admin" : "dept";
+        jdbc.update("insert into biz_hospital_user(user_id,hospital_id,department_id,role_type,status,create_time) " +
+                        "values(?,?,?,?,'0',now())",
+                userId, hospitalId, hospitalDepartmentId, roleType);
+    }
+
+    private int roleRank(String roleKey) {
+        return switch (roleKey == null ? "" : roleKey) {
+            case "super_admin" -> 1000;
+            case "company_admin" -> 900;
+            case "company_sub_admin" -> 800;
+            case "company_executive" -> 700;
+            case "maintenance_manager" -> 600;
+            case "regional_manager" -> 500;
+            case "engineer" -> 400;
+            case "department_staff" -> 300;
+            case "hospital_admin" -> 200;
+            case "hospital_sub_admin" -> 150;
+            case "hospital_dept" -> 100;
+            default -> 10;
+        };
+    }
+
+    private int targetRank(Long userId) {
+        List<String> keys = jdbc.queryForList(
+                "select r.role_key from sys_user_role ur join sys_role r on r.role_id=ur.role_id " +
+                        "where ur.user_id=?", String.class, userId);
+        int rank = 0;
+        for (String key : keys) rank = Math.max(rank, roleRank(key));
+        return rank;
+    }
+
+    private void assertCanManageUser(Long targetId, boolean allowSelf) {
+        LoginUser actor = AuthContext.require();
+        if (actor.isSuperAdmin()) return;
+        if (allowSelf && targetId.equals(actor.getUserId())) return;
+        Long actorCompany = dataScope.companyId(actor);
+        List<Long> targetCompanies = jdbc.queryForList(
+                "select company_id from sys_user where user_id=?", Long.class, targetId);
+        if (actorCompany == null || targetCompanies.isEmpty() || targetCompanies.get(0) == null
+                || !actorCompany.equals(targetCompanies.get(0))) {
+            throw BizException.forbidden("无权操作其他公司用户");
+        }
+        if (userRank(actor) <= targetRank(targetId)) {
+            throw BizException.forbidden("无权操作同级或更高权限用户");
         }
     }
 
@@ -272,6 +519,25 @@ public class SystemService {
             for (Object r : list) {
                 jdbc.update("insert ignore into sys_user_role(user_id,role_id) values(?,?)", userId, ((Number) r).longValue());
             }
+        }
+    }
+
+    private void applyRoleDefaultDept(Long userId, Long companyId) {
+        if (userId == null || companyId == null) return;
+        Integer count = jdbc.queryForObject(
+                "select count(*) from sys_user_role ur join sys_role r on r.role_id=ur.role_id " +
+                        "where ur.user_id=? and r.role_key='maintenance_manager'", Integer.class, userId);
+        if (count == null || count == 0) return;
+        Long deptId = jdbc.queryForObject(
+                "select dept_id from sys_user where user_id=?", Long.class, userId);
+        if (deptId != null) return;
+        List<Long> candidates = jdbc.queryForList(
+                "select dept_id from sys_dept where company_id=? " +
+                        "and dept_name in ('维保部','维保中心','维保事业部') " +
+                        "order by case dept_name when '维保部' then 0 when '维保中心' then 1 else 2 end, dept_id limit 1",
+                Long.class, companyId);
+        if (!candidates.isEmpty()) {
+            jdbc.update("update sys_user set dept_id=? where user_id=?", candidates.get(0), userId);
         }
     }
 
@@ -285,7 +551,7 @@ public class SystemService {
             return jdbc.queryForList(sql + " order by r.sort");
         }
         return jdbc.queryForList(sql +
-                " where (r.company_id = ?) or (r.company_id is null and r.role_type = 'standard') " +
+                " where (r.company_id = ?) or (r.company_id is null and r.role_id in (100,101,102,104,213,214)) " +
                 " order by r.sort", companyId);
     }
 
@@ -548,9 +814,10 @@ public class SystemService {
                 Integer.class, companyId, parentId, name);
         if (dup != null && dup > 0) throw BizException.badRequest("同级部门名称已存在");
         Long regionId = validateDeptRegion(companyId, longOf(body.get("regionId")), null);
+        String leader = regionId == null ? str(body.get("leader")) : regionLeaderName(regionId);
         jdbc.update("insert into sys_dept(company_id,parent_id,region_id,dept_name,leader,phone,email,sort,status,create_time) " +
                         "values(?,?,?,?,?,?,?,?,'0',now())",
-                companyId, parentId, regionId, name, str(body.get("leader")),
+                companyId, parentId, regionId, name, leader,
                 str(body.get("phone")), str(body.get("email")), body.getOrDefault("sort", 0));
     }
 
@@ -569,8 +836,9 @@ public class SystemService {
                 Integer.class, companyId, parentId, name, deptId);
         if (dup != null && dup > 0) throw BizException.badRequest("同级部门名称已存在");
         Long regionId = validateDeptRegion(companyId, longOf(body.get("regionId")), deptId);
+        String leader = regionId == null ? str(body.get("leader")) : regionLeaderName(regionId);
         jdbc.update("update sys_dept set parent_id=?,region_id=?,dept_name=?,leader=?,phone=?,email=?,sort=? where dept_id=?",
-                parentId, regionId, name, str(body.get("leader")), str(body.get("phone")),
+                parentId, regionId, name, leader, str(body.get("phone")),
                 str(body.get("email")), body.getOrDefault("sort", 0), deptId);
     }
 
@@ -587,6 +855,14 @@ public class SystemService {
                 Integer.class, regionId, deptId == null ? 0L : deptId);
         if (used != null && used > 0) throw BizException.badRequest("该地理区域已关联其他部门");
         return regionId;
+    }
+
+    private String regionLeaderName(Long regionId) {
+        if (regionId == null) return null;
+        List<String> names = jdbc.queryForList(
+                "select u.nick_name from biz_region r join sys_user u on u.user_id=r.manager_id " +
+                        "where r.region_id=?", String.class, regionId);
+        return names.isEmpty() ? null : names.get(0);
     }
 
     public void deleteDept(Long id) {
@@ -640,6 +916,39 @@ public class SystemService {
         }
     }
 
+    private void validateUserEngineerBinding(Long companyId, Long userId, Map<String, Object> body) {
+        Long engineerId = longOf(body.get("engineerId"));
+        if (engineerId == null) return;
+        Long deptId = longOf(body.get("deptId"));
+        if (deptId == null && userId != null) {
+            List<Long> depts = jdbc.queryForList("select dept_id from sys_user where user_id=?", Long.class, userId);
+            deptId = depts.isEmpty() ? null : depts.get(0);
+        }
+        if (deptId == null || !isMaintenanceDept(companyId, deptId)) {
+            throw BizException.badRequest("只有维保部及下级部门可以绑定工程师");
+        }
+    }
+
+    private boolean isMaintenanceDept(Long companyId, Long deptId) {
+        Long current = deptId;
+        int guard = 0;
+        while (current != null && guard++ < 20) {
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                    "select dept_name, parent_id, company_id from sys_dept where dept_id=?", current);
+            if (rows.isEmpty()) return false;
+            Map<String, Object> row = rows.get(0);
+            if (row.get("company_id") == null || !companyId.equals(((Number) row.get("company_id")).longValue())) {
+                return false;
+            }
+            String name = str(row.get("dept_name"));
+            if ("维保部".equals(name) || "维保中心".equals(name) || "维保事业部".equals(name)) {
+                return true;
+            }
+            current = longOf(row.get("parent_id"));
+        }
+        return false;
+    }
+
     public Map<String, Object> loginLogPage(int pageNum, int pageSize, String username) {
         List<Object> args = new ArrayList<>();
         StringBuilder where = new StringBuilder(" where 1=1 ");
@@ -689,14 +998,29 @@ public class SystemService {
         return s != null && !s.isBlank();
     }
 
+    private String validateNickName(Object value) {
+        String nickName = str(value).trim();
+        if (nickName.isBlank()) throw BizException.badRequest("请填写姓名");
+        if (nickName.length() > 30) throw BizException.badRequest("姓名不能超过 30 个字符");
+        return nickName;
+    }
+
     private String normalizeContact(Object o) {
         String value = str(o).trim();
-        return value.isBlank() ? null : value;
+        if (value.isBlank()) return null;
+        if (!value.matches("^1[3-9]\\d{9}$")) {
+            throw BizException.badRequest("手机号格式不正确，请输入 11 位手机号");
+        }
+        return value;
     }
 
     private String normalizeEmail(Object o) {
         String value = str(o).trim().toLowerCase();
-        return value.isBlank() ? null : value;
+        if (value.isBlank()) return null;
+        if (value.length() > 100 || !value.matches("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")) {
+            throw BizException.badRequest("邮箱格式不正确");
+        }
+        return value;
     }
 
     private void validateContactUnique(String phone, String email, Long excludeUserId) {

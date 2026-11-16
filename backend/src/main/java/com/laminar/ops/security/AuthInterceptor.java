@@ -1,6 +1,7 @@
 package com.laminar.ops.security;
 
 import com.laminar.ops.common.BizException;
+import com.laminar.ops.system.service.SysConfigService;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -19,6 +20,7 @@ public class AuthInterceptor implements HandlerInterceptor {
     private final JwtUtil jwtUtil;
     private final LoginUserService loginUserService;
     private final StringRedisTemplate redis;
+    private final SysConfigService sysConfig;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
@@ -36,9 +38,19 @@ public class AuthInterceptor implements HandlerInterceptor {
         } catch (Exception e) {
             throw BizException.unauthorized("登录凭证无效，请重新登录");
         }
+        if (Boolean.TRUE.equals(redis.hasKey("kicked:" + userId))) {
+            throw BizException.unauthorized("账号已被管理员强制下线");
+        }
+        if (!Boolean.TRUE.equals(redis.hasKey("online:" + userId))) {
+            throw BizException.unauthorized("登录会话已失效，请重新登录");
+        }
         LoginUser user = loginUserService.load(userId);
+        if (sysConfig.bool("platform.maintenance.enabled", false) && !user.isSuperAdmin()) {
+            throw new BizException(503, sysConfig.value("platform.maintenance.message", "平台正在维护，请稍后再试"));
+        }
         AuthContext.set(user);
-        redis.expire("online:" + userId, Duration.ofMinutes(30));
+        redis.expire("online:" + userId, Duration.ofMinutes(
+                Math.max(1, sysConfig.intValue("sys.session.idleMinutes", 30))));
 
         String uri = request.getRequestURI();
         if (user.isMustChangePassword()

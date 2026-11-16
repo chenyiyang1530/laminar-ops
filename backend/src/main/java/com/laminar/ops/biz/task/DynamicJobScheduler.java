@@ -68,6 +68,14 @@ public class DynamicJobScheduler {
                 String.valueOf(job.get("method_name")), String.valueOf(job.get("cron")));
     }
 
+    public void runNow(Long jobId) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select bean_name, method_name from sys_job where job_id=?", jobId);
+        if (rows.isEmpty()) throw new IllegalArgumentException("任务不存在");
+        Map<String, Object> job = rows.get(0);
+        run(jobId, String.valueOf(job.get("bean_name")), String.valueOf(job.get("method_name")));
+    }
+
     private void schedule(Long id, String bean, String method, String cron) {
         try {
             CronTrigger trigger = new CronTrigger(cron);

@@ -1,0 +1,83 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub Environment
+        required: true
+        default: production
+      host:
+        description: Target SSH host
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web-admin/package-lock.json
+      - name: Backend tests and package
+        run: |
+          mvn -B test
+          mvn -B -DskipTests package
+        working-directory: backend
+      - name: Frontend tests and build
+        run: |
+          npm ci
+          npm run test:unit
+          npm run build
+          npm run build:portal
+        working-directory: web-admin
+      - name: Package release
+        run: |
+          mkdir -p release/dist release/dist-portal
+          cp backend/target/laminar-ops-1.0.0.jar release/laminar-ops.jar
+          cp -r web-admin/dist/. release/dist/
+          cp -r web-admin/dist-portal/. release/dist-portal/
+          cp tools/deploy-linux.sh release/deploy-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: release
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+      - name: Upload release
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ inputs.host }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" 'mkdir -p /tmp/laminar-ops-release'
+          scp -i ~/.ssh/deploy_key -r release/* "$SSH_USER@$SSH_HOST:/tmp/laminar-ops-release/"
+      - name: Restart and rollback on failure
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ inputs.host }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" 'sudo bash /tmp/laminar-ops-release/deploy-linux.sh /tmp/laminar-ops-release'

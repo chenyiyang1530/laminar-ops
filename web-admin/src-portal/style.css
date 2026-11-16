@@ -11,3 +11,14 @@ body { margin: 0; font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', 
 .kpi .label { font-size: 12px; color: #8494a8; margin-top: 4px; }
 .pager { margin-top: 14px; justify-content: flex-end; }
 .el-table th.el-table__cell { background: #f8fafc !important; }
+
+/* 表格统一居中：表头与单元格内容 */
+.el-table th.el-table__cell,
+.el-table td.el-table__cell {
+  text-align: center !important;
+}
+.el-table th.el-table__cell > .cell,
+.el-table td.el-table__cell > .cell {
+  text-align: center !important;
+  justify-content: center;
+}

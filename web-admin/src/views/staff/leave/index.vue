@@ -39,8 +39,12 @@
         <el-table-column prop="leaveType" label="类型" width="100">
           <template #default="{ row }">{{ typeText(row.leaveType) }}</template>
         </el-table-column>
-        <el-table-column prop="startDate" label="开始日期" width="120" />
-        <el-table-column prop="endDate" label="结束日期" width="120" />
+        <el-table-column label="开始日期" width="145">
+          <template #default="{ row }">{{ row.startDate }} {{ periodText(row.startPeriod) }}</template>
+        </el-table-column>
+        <el-table-column label="结束日期" width="145">
+          <template #default="{ row }">{{ row.endDate }} {{ periodText(row.endPeriod) }}</template>
+        </el-table-column>
         <el-table-column prop="days" label="天数" width="70" />
         <el-table-column prop="reason" label="原因" min-width="180" show-overflow-tooltip />
         <el-table-column label="状态" width="120">
@@ -72,10 +76,22 @@
           </el-select>
         </el-form-item>
         <el-form-item label="开始日期" required>
-          <el-date-picker v-model="form.startDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disabledDate" style="width: 100%" />
+          <div class="date-period">
+            <el-date-picker v-model="form.startDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disabledDate" style="flex: 1" />
+            <el-select v-model="form.startPeriod" style="width: 86px">
+              <el-option label="上午" value="AM" />
+              <el-option label="下午" value="PM" />
+            </el-select>
+          </div>
         </el-form-item>
         <el-form-item label="结束日期" required>
-          <el-date-picker v-model="form.endDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disabledDate" style="width: 100%" />
+          <div class="date-period">
+            <el-date-picker v-model="form.endDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disabledDate" style="flex: 1" />
+            <el-select v-model="form.endPeriod" style="width: 86px">
+              <el-option label="上午" value="AM" />
+              <el-option label="下午" value="PM" />
+            </el-select>
+          </div>
         </el-form-item>
         <el-form-item label="请假天数">
           <span>{{ days }} 天</span>
@@ -108,7 +124,7 @@ const myList = ref([])
 const pendingList = ref([])
 const applyReady = ref(true)
 const applyReason = ref('')
-const form = reactive({ leaveType: 'personal', startDate: '', endDate: '', reason: '' })
+const form = reactive({ leaveType: 'personal', startDate: '', endDate: '', startPeriod: 'AM', endPeriod: 'PM', reason: '' })
 
 const typeOptions = [
   { value: 'annual', label: '年假' },
@@ -134,12 +150,16 @@ const stepText = (status, step) => {
   if (status === 'APPROVED') return '审批完成'
   return '—'
 }
+const periodText = (period) => period === 'AM' ? '上午' : period === 'PM' ? '下午' : ''
 const days = computed(() => {
   if (!form.startDate || !form.endDate) return 0
   const a = new Date(form.startDate)
   const b = new Date(form.endDate)
   if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || b < a) return 0
-  return Math.round((b - a) / 86400000) + 1
+  let total = Math.round((b - a) / 86400000) + 1
+  if (form.startPeriod === 'PM') total -= 0.5
+  if (form.endPeriod === 'AM') total -= 0.5
+  return Math.max(0, total)
 })
 
 const disabledDate = (date) => {
@@ -182,7 +202,7 @@ async function loadTab() {
 }
 
 function openApply() {
-  Object.assign(form, { leaveType: 'personal', startDate: '', endDate: '', reason: '' })
+  Object.assign(form, { leaveType: 'personal', startDate: '', endDate: '', startPeriod: 'AM', endPeriod: 'PM', reason: '' })
   applyVisible.value = true
 }
 
@@ -192,7 +212,7 @@ async function submit() {
     return
   }
   if (days.value <= 0) {
-    ElMessage.warning('结束日期不能早于开始日期')
+    ElMessage.warning('请假时段不正确，结束时间不能早于开始时间')
     return
   }
   saving.value = true
@@ -232,5 +252,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.date-period { display: flex; align-items: center; gap: 8px; width: 100%; }
 .leave-tip { margin-bottom: 12px; }
 </style>

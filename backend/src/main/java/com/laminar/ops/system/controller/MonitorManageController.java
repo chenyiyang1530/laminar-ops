@@ -1,6 +1,8 @@
 package com.laminar.ops.system.controller;
 
 import com.laminar.ops.common.Result;
+import com.laminar.ops.common.BizException;
+import com.laminar.ops.security.AuthContext;
 import com.laminar.ops.security.Perm;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.Cursor;
@@ -9,6 +11,8 @@ import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -33,6 +37,9 @@ public class MonitorManageController {
     @GetMapping("/online")
     @Perm("monitor:server:view")
     public Result<List<Map<String, Object>>> online() {
+        if (!AuthContext.require().isSuperAdmin()) {
+            throw BizException.forbidden("只有系统管理员可以查看在线用户");
+        }
         Set<String> keys = new LinkedHashSet<>();
         redis.execute((RedisCallback<Void>) connection -> {
             ScanOptions options = ScanOptions.scanOptions().match("online:*").count(200).build();
@@ -55,11 +62,26 @@ public class MonitorManageController {
                 row.put("nickName", parts.length > 1 ? parts[1] : "");
                 row.put("ip", parts.length > 2 ? parts[2] : "");
                 row.put("loginTime", parts.length > 3 ? parts[3] : "");
+                row.put("location", parts.length > 4 ? parts[4] : "—");
+                row.put("browser", parts.length > 5 ? parts[5] : "—");
+                row.put("os", parts.length > 6 ? parts[6] : "—");
                 row.put("ttl", redis.getExpire(key));
                 list.add(row);
             }
         }
         return Result.ok(list);
+    }
+
+    @DeleteMapping("/online/{userId}")
+    @Perm("monitor:server:view")
+    public Result<Void> kick(@PathVariable Long userId) {
+        if (!AuthContext.require().isSuperAdmin()) {
+            throw BizException.forbidden("只有系统管理员可以强制退出在线用户");
+        }
+        redis.delete("online:" + userId);
+        // 旧 JWT 仍是有效签名，用 12 小时墓碑覆盖令牌剩余有效期，防止被踢后继续访问。
+        redis.opsForValue().set("kicked:" + userId, "1", java.time.Duration.ofHours(12));
+        return Result.ok();
     }
 
     @GetMapping("/server")

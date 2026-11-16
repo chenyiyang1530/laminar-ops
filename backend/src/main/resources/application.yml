@@ -1,11 +1,12 @@
 app:
-  demo-login-enabled: true
+  demo-login-enabled: false
   verification:
-    dev-mode: true
+    dev-mode: ${VERIFICATION_DEV_MODE:false}
     code-ttl-seconds: 300
     cooldown-seconds: 60
 server:
   port: 8080
+  forward-headers-strategy: framework
   servlet:
     context-path: /
 
@@ -17,8 +18,8 @@ spring:
   application:
     name: laminar-ops
   datasource:
-    url: jdbc:mysql://127.0.0.1:3306/laminar_ops?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: ${DB_USERNAME:root}
+    url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/laminar_ops?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:laminar_ops}
     password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
@@ -26,8 +27,9 @@ spring:
       minimum-idle: 5
   data:
     redis:
-      host: 127.0.0.1
-      port: 6379
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
       timeout: 3000ms
   servlet:
     multipart:
@@ -36,6 +38,14 @@ spring:
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    # 现有数据库已经具备 V1/V2 的结构和种子数据，基线放在 V2；
+    # 空库会按 V1 -> V2 -> V3 依次初始化。
+    baseline-version: 2
+    validate-on-migrate: true
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
@@ -54,11 +64,22 @@ management:
         include: health,info,metrics
   endpoint:
     health:
-      show-details: always
+      show-details: never
+      probes:
+        enabled: true
 
 laminar:
+  monitor:
+    slow-sql-enabled: true
+    slow-sql-threshold-ms: 1000
+    token: ${MONITOR_TOKEN:}
   app:
     version: 1.6.0
+  backup:
+    enabled: ${BACKUP_ENABLED:true}
+    script: ${BACKUP_SCRIPT:D:/ideaWork/laminar-ops/tools/backup.ps1}
+    dir: ${BACKUP_DIR:D:/backups/laminar-ops}
+    cron: "${BACKUP_CRON:0 0 2 * * *}"
   archive:
     retention-months: 6
   leave:
@@ -70,15 +91,26 @@ laminar:
   jwt:
     secret: ${JWT_SECRET:}
     expire-hours: 12
+  config:
+    # 敏感参数加密密钥。生产环境必须设置，修改后旧密文将无法解密。
+    secret: ${CONFIG_SECRET:}
+  file:
+    # 文件签名密钥；默认复用 CONFIG_SECRET，也可单独配置
+    sign-secret: ${FILE_SIGN_SECRET:}
+    sign-ttl-seconds: ${FILE_SIGN_TTL_SECONDS:1800}
   upload:
-    path: D:/ideaWork/laminar-ops/upload
+    path: ${UPLOAD_DIR:./upload}
+    virus-scan-enabled: ${UPLOAD_VIRUS_SCAN:false}
+    clamav-command: ${CLAMAV_COMMAND:}
+    cleanup-enabled: ${UPLOAD_CLEANUP_ENABLED:false}
+    cleanup-retention-days: ${UPLOAD_CLEANUP_DAYS:180}
   web:
-    admin-dist: D:/ideaWork/laminar-ops/web-admin/dist
-    portal-dist: D:/ideaWork/laminar-ops/web-admin/dist-portal
+    admin-dist: ${WEB_ADMIN_DIST:D:/ideaWork/laminar-ops/web-admin/dist}
+    portal-dist: ${WEB_PORTAL_DIST:D:/ideaWork/laminar-ops/web-admin/dist-portal}
   cors:
-    allowed-origins: http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174}
     # 允许本机/内网任意端口（Vite 端口递增、通过局域网 IP 访问时避免 CORS 403）
-    allowed-origin-patterns: "http://localhost:*,http://127.0.0.1:*,http://[::1]:*,http://192.168.*:*,http://10.*:*,http://172.*:*"
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*,http://[::1]:*,http://192.168.*:*,http://10.*:*,http://172.*:*}
 
 logging:
   level:

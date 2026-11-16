@@ -22,7 +22,7 @@ const args = [
   `--host=${process.env.DB_HOST || '127.0.0.1'}`,
   `--port=${process.env.DB_PORT || '3306'}`,
   `--user=${process.env.DB_USER || 'root'}`,
-  `--password=${process.env.DB_PASSWORD || '123456'}`,
+  `--password=${process.env.DB_PASSWORD || (() => { throw new Error('请设置 DB_PASSWORD 环境变量') })()}`,
   '--default-character-set=utf8mb4',
   process.env.DB_NAME || 'laminar_ops'
 ];

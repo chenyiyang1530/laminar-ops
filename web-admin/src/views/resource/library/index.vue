@@ -12,14 +12,21 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import CrudPage from '@/components/CrudPage.vue'
 import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
+const route = useRoute()
 const canDocument = computed(() => store.hasPerm('resource:document:list'))
 const canKnowledge = computed(() => store.hasPerm('resource:knowledge:list'))
-const active = ref(canDocument.value ? 'document' : 'knowledge')
+function pickTab(tab) {
+  if (tab === 'knowledge' && canKnowledge.value) return 'knowledge'
+  return canDocument.value ? 'document' : 'knowledge'
+}
+const active = ref(pickTab(route.query.tab))
+watch(() => route.query.tab, (tab) => { active.value = pickTab(tab) })
 </script>
 
 <style scoped>

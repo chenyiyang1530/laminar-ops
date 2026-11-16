@@ -11,7 +11,11 @@ import java.util.List;
 public interface BizHospitalMapper extends BaseMapper<BizHospital> {
 
     @Select("<script>" +
-            "select h.*, r.region_name from biz_hospital h left join biz_region r on r.region_id = h.region_id " +
+            "select h.*, r.region_name, " +
+            "(select group_concat(c2.company_name separator '、') from biz_company_hospital ch " +
+            "join biz_company c2 on c2.company_id=ch.company_id where ch.hospital_id=h.hospital_id) as service_company_names " +
+            "from biz_hospital h " +
+            "left join biz_region r on r.region_id = h.region_id " +
             "<where>" +
             "<if test='q.hospitalName != null and q.hospitalName != \"\"'> and h.hospital_name like concat('%', #{q.hospitalName}, '%')</if>" +
             "<if test='q.hospitalCode != null and q.hospitalCode != \"\"'> and h.hospital_code like concat('%', #{q.hospitalCode}, '%')</if>" +
@@ -27,6 +31,10 @@ public interface BizHospitalMapper extends BaseMapper<BizHospital> {
     IPage<BizHospital> selectPageWithRegion(IPage<BizHospital> page, @Param("q") BizHospital q,
                                             @Param("hospitalIds") List<Long> hospitalIds);
 
-    @Select("select h.*, r.region_name from biz_hospital h left join biz_region r on r.region_id = h.region_id where h.hospital_id = #{id}")
+    @Select("select h.*, r.region_name, " +
+            "(select group_concat(c2.company_name separator '、') from biz_company_hospital ch " +
+            "join biz_company c2 on c2.company_id=ch.company_id where ch.hospital_id=h.hospital_id) as service_company_names " +
+            "from biz_hospital h " +
+            "left join biz_region r on r.region_id = h.region_id where h.hospital_id = #{id}")
     BizHospital selectDetail(@Param("id") Long id);
 }

@@ -12,6 +12,7 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.LocalDate;
@@ -57,7 +58,14 @@ public class LeaveService {
         LocalDate end = LocalDate.parse(str(body.get("endDate")));
         if (end.isBefore(start)) throw BizException.badRequest("结束日期不能早于开始日期");
         if (start.isBefore(LocalDate.now())) throw BizException.badRequest("请假开始日期不能早于今天");
-        int days = (int) ChronoUnit.DAYS.between(start, end) + 1;
+        String startPeriod = normalizePeriod(body.get("startPeriod"), "AM");
+        String endPeriod = normalizePeriod(body.get("endPeriod"), "PM");
+        BigDecimal days = BigDecimal.valueOf(ChronoUnit.DAYS.between(start, end) + 1);
+        if ("PM".equals(startPeriod)) days = days.subtract(new BigDecimal("0.5"));
+        if ("AM".equals(endPeriod)) days = days.subtract(new BigDecimal("0.5"));
+        if (days.compareTo(BigDecimal.ZERO) <= 0) {
+            throw BizException.badRequest("请假时段不正确，结束时间不能早于开始时间");
+        }
         Integer overlap = jdbc.queryForObject(
                 "select count(*) from biz_engineer_leave where engineer_id=? " +
                         "and status in ('PENDING_REGION','PENDING_COMPANY','APPROVED') " +
@@ -89,7 +97,13 @@ public class LeaveService {
                         str(body.getOrDefault("leaveType", "personal")), days);
                 chain = engineerChain(((Number) regionId).longValue(), companyId, user.getUserId(), needSecond);
             }
-            if (totalManagerId != null && !chain.contains(totalManagerId) && !totalManagerId.equals(user.getUserId())) {
+            if (chain.isEmpty() && totalManagerId != null) {
+                Long resolvedTotal = delegated(totalManagerId, LocalDate.now());
+                if (resolvedTotal != null && !resolvedTotal.equals(user.getUserId())) {
+                    chain.add(resolvedTotal);
+                }
+            }
+            if (needSecond && totalManagerId != null && !chain.contains(totalManagerId) && !totalManagerId.equals(user.getUserId())) {
                 Long resolvedTotal = delegated(totalManagerId, LocalDate.now());
                 if (resolvedTotal != null && !resolvedTotal.equals(user.getUserId()) && !chain.contains(resolvedTotal)) {
                     chain.add(resolvedTotal);
@@ -106,23 +120,26 @@ public class LeaveService {
         final int insertStep = currentStep;
         final boolean insertNeedSecond = needSecond;
         final String chainText = chain.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+        final BigDecimal insertDays = days;
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement(
-                    "insert into biz_engineer_leave(engineer_id,company_id,leave_type,start_date,end_date,days,need_second,reason," +
+                    "insert into biz_engineer_leave(engineer_id,company_id,leave_type,start_date,start_period,end_date,end_period,days,need_second,reason," +
                             "status,current_step,approver_chain,created_by,create_time,update_time) " +
-                            "values(?,?,?,?,?,?,?,?,?,?,?,?,now(),now())", Statement.RETURN_GENERATED_KEYS);
+                            "values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,now(),now())", Statement.RETURN_GENERATED_KEYS);
             ps.setObject(1, engineerId);
             ps.setObject(2, companyId);
             ps.setString(3, str(body.getOrDefault("leaveType", "personal")));
             ps.setObject(4, start);
-            ps.setObject(5, end);
-            ps.setInt(6, days);
-            ps.setInt(7, insertNeedSecond ? 1 : 0);
-            ps.setString(8, str(body.get("reason")));
-            ps.setString(9, insertStatus);
-            ps.setInt(10, insertStep);
-            ps.setString(11, chainText);
-            ps.setObject(12, user.getUserId());
+            ps.setString(5, startPeriod);
+            ps.setObject(6, end);
+            ps.setString(7, endPeriod);
+            ps.setBigDecimal(8, insertDays);
+            ps.setInt(9, insertNeedSecond ? 1 : 0);
+            ps.setString(10, str(body.get("reason")));
+            ps.setString(11, insertStatus);
+            ps.setInt(12, insertStep);
+            ps.setString(13, chainText);
+            ps.setObject(14, user.getUserId());
             return ps;
         }, holder);
         Long leaveId = holder.getKey() == null ? 0L : holder.getKey().longValue();
@@ -144,8 +161,8 @@ public class LeaveService {
         LoginUser user = AuthContext.require();
         return jdbc.queryForList(
                 "select t.task_id as `taskId`, t.step_no as `stepNo`, l.leave_id as `leaveId`, " +
-                        "e.engineer_name as `engineerName`, l.leave_type as `leaveType`, l.start_date as `startDate`, " +
-                        "l.end_date as `endDate`, l.days, l.reason, l.status " +
+                        "e.engineer_name as `engineerName`, l.leave_type as `leaveType`, l.start_date as `startDate`, l.start_period as `startPeriod`, " +
+                        "l.end_date as `endDate`, l.end_period as `endPeriod`, l.days, l.reason, l.status " +
                         "from biz_approval_task t join biz_engineer_leave l on l.leave_id=t.biz_id " +
                         "join biz_engineer e on e.engineer_id=l.engineer_id " +
                         "where t.biz_type='engineer_leave' and t.approver_id=? and t.status='PENDING' " +
@@ -242,6 +259,7 @@ public class LeaveService {
             return;
         }
         Long engineerId = ((Number) leave.get("engineer_id")).longValue();
+        reassignPendingInspectionTasks(engineerId, leave);
         Integer active = jdbc.queryForObject(
                 "select count(*) from biz_workorder where engineer_id=? and status in ('0','1','2','3','4')",
                 Integer.class, engineerId);
@@ -285,7 +303,7 @@ public class LeaveService {
         return count != null && count > 0;
     }
 
-    private boolean needSecond(Long companyId, Long regionId, String leaveType, int days) {
+    private boolean needSecond(Long companyId, Long regionId, String leaveType, BigDecimal days) {
         List<Map<String, Object>> rows = null;
         if (regionId != null) {
             rows = jdbc.queryForList(
@@ -305,10 +323,47 @@ public class LeaveService {
                             "where leave_type=? and status='0' and company_id is null and region_id is null order by rule_id limit 1",
                     leaveType);
         }
-        if (rows.isEmpty()) return days > longThresholdDays;
+        if (rows.isEmpty()) return days.compareTo(BigDecimal.valueOf(longThresholdDays)) > 0;
         int threshold = ((Number) rows.get(0).get("thresholdDays")).intValue();
         boolean second = "1".equals(String.valueOf(rows.get(0).get("secondLevel")));
-        return second && days > threshold;
+        return second && days.compareTo(BigDecimal.valueOf(threshold)) > 0;
+    }
+
+    private String normalizePeriod(Object value, String fallback) {
+        String period = str(value).toUpperCase();
+        if (period.isBlank()) period = fallback;
+        if (!"AM".equals(period) && !"PM".equals(period)) {
+            throw BizException.badRequest("请假时段只能是上午或下午");
+        }
+        return period;
+    }
+
+    private void reassignPendingInspectionTasks(Long engineerId, Map<String, Object> leave) {
+        Object regionValue = leave.get("region_id");
+        if (regionValue == null) return;
+        Long regionId = ((Number) regionValue).longValue();
+        Long managerUserId = jdbc.queryForList(
+                "select manager_id from biz_region where region_id=?", Long.class, regionId)
+                .stream().findFirst().orElse(null);
+        if (managerUserId == null) return;
+        List<Map<String, Object>> managers = jdbc.queryForList(
+                "select engineer_id, engineer_name from biz_engineer where user_id=? and status='0'", managerUserId);
+        if (managers.isEmpty()) return;
+        Long managerEngineerId = ((Number) managers.get(0).get("engineer_id")).longValue();
+        if (managerEngineerId.equals(engineerId)) return;
+        String managerName = String.valueOf(managers.get(0).get("engineer_name"));
+        Object endValue = leave.get("end_date");
+        LocalDate endDate = endValue == null ? LocalDate.now() : LocalDate.parse(String.valueOf(endValue));
+        jdbc.update("update biz_inspection_task set assignee_id=?, assignee_name=?, update_time=now() " +
+                        "where assignee_id=? and status in ('0','1','3') and plan_time <= ?",
+                managerEngineerId, managerName, engineerId, endDate);
+        jdbc.update("update biz_maintenance_task set assignee_id=?, update_time=now() " +
+                        "where assignee_id=? and status in ('0','1','3') and plan_date <= ?",
+                managerEngineerId, engineerId, endDate);
+        notifyLeave(managerUserId, ((Number) leave.get("leave_id")).longValue(), "task_reassign",
+                "巡检/保养任务已转入",
+                leave.get("engineer_name") + " 请假，其待执行巡检/保养任务已转给你",
+                leave.get("company_id") == null ? null : ((Number) leave.get("company_id")).longValue());
     }
 
     public int escalateHandoverTimeouts() {        LocalDateTime cutoff = LocalDateTime.now().minusHours(handoverTimeoutHours);
@@ -345,7 +400,8 @@ public class LeaveService {
     private List<Map<String, Object>> leaveRows(String suffix, List<Object> args) {
         return jdbc.queryForList(
                 "select l.leave_id as `leaveId`, l.engineer_id as `engineerId`, e.engineer_name as `engineerName`, " +
-                        "l.leave_type as `leaveType`, l.start_date as `startDate`, l.end_date as `endDate`, " +
+                        "l.leave_type as `leaveType`, l.start_date as `startDate`, l.start_period as `startPeriod`, " +
+                        "l.end_date as `endDate`, l.end_period as `endPeriod`, " +
                         "l.days, l.reason, l.status, l.current_step as `currentStep`, l.create_time as `createTime` " +
                         "from biz_engineer_leave l join biz_engineer e on e.engineer_id=l.engineer_id " + suffix,
                 args.toArray());
@@ -410,7 +466,16 @@ public class LeaveService {
         if (managerId == null || managerId.equals(applicant)) return;
         Long resolved = delegated(managerId, LocalDate.now());
         if (resolved == null || resolved.equals(applicant) || chain.contains(resolved)) return;
+        if (onLeave(resolved, LocalDate.now())) return;
         chain.add(resolved);
+    }
+
+    private boolean onLeave(Long userId, LocalDate date) {
+        Integer count = jdbc.queryForObject(
+                "select count(*) from biz_engineer_leave l join biz_engineer e on e.engineer_id=l.engineer_id " +
+                        "where e.user_id=? and l.status in ('PENDING_REGION','PENDING_COMPANY','APPROVED') " +
+                        "and l.start_date<=? and l.end_date>=?", Integer.class, userId, date, date);
+        return count != null && count > 0;
     }
 
     private Long firstApprover(Map<String, Object> engineer, Long companyId, Long applicant) {

@@ -22,7 +22,7 @@ public class ContractScopeService {
     private final JdbcTemplate jdbc;
     private final DataScopeService dataScope;
 
-    private static final Set<String> TYPES = Set.of("hospital", "department", "area", "equipment");
+    private static final Set<String> TYPES = Set.of("hospital", "campus", "department", "equipment");
 
     public List<Map<String, Object>> list(Long contractId) {
         Map<String, Object> contract = requireContract(contractId);
@@ -31,14 +31,14 @@ public class ContractScopeService {
                 "select s.scope_id as `scopeId`, s.scope_type as `scopeType`, s.scope_value as `scopeValue`, " +
                         "case s.scope_type " +
                         "  when 'hospital' then h.hospital_name " +
+                        "  when 'campus' then c.campus_name " +
                         "  when 'department' then d.department_name " +
-                        "  when 'area' then a.area_name " +
                         "  when 'equipment' then e.equipment_name " +
                         "end as `scopeName` " +
                         "from biz_contract_scope s " +
                         "left join biz_hospital h on s.scope_type='hospital' and h.hospital_id=? " +
+                        "left join biz_campus c on s.scope_type='campus' and c.campus_id=s.scope_value " +
                         "left join biz_department d on s.scope_type='department' and d.department_id=s.scope_value " +
-                        "left join biz_clean_area a on s.scope_type='area' and a.area_id=s.scope_value " +
                         "left join biz_equipment e on s.scope_type='equipment' and e.equipment_id=s.scope_value " +
                         "where s.contract_id=? order by s.scope_type, s.scope_id",
                 contract.get("hospital_id"), contractId);
@@ -77,10 +77,14 @@ public class ContractScopeService {
     }
 
     /**
-     * 按工单位置匹配有效合同：设备 > 洁净区域 > 科室 > 全院/无范围。
+     * 按工单位置匹配有效合同：设备 > 科室 > 全院/无范围。
      * 命中唯一公司返回公司 ID，多公司冲突返回 null。
      */
-    public Long resolveCompany(Long hospitalId, Long departmentId, Long areaId, Long equipmentId) {
+    public Long resolveCompany(Long hospitalId, Long departmentId, Long equipmentId) {
+        return resolveCompany(hospitalId, departmentId, equipmentId, null);
+    }
+
+    public Long resolveCompany(Long hospitalId, Long departmentId, Long equipmentId, Long campusId) {
         if (hospitalId == null) return null;
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "select c.company_id, s.scope_type from biz_contract c " +
@@ -91,9 +95,9 @@ public class ContractScopeService {
                         "and (not exists (select 1 from biz_contract_scope x where x.contract_id=c.contract_id) " +
                         "  or s.scope_type='hospital' " +
                         "  or (s.scope_type='equipment' and s.scope_value=?) " +
-                        "  or (s.scope_type='area' and s.scope_value=?) " +
-                        "  or (s.scope_type='department' and s.scope_value=?))",
-                hospitalId, equipmentId, areaId, departmentId);
+                        "  or (s.scope_type='department' and s.scope_value=?) " +
+                        "  or (s.scope_type='campus' and s.scope_value=?))",
+                hospitalId, equipmentId, departmentId, campusId);
         Map<Long, Integer> companyPriority = new LinkedHashMap<>();
         for (Map<String, Object> row : rows) {
             Long companyId = ((Number) row.get("company_id")).longValue();
@@ -110,7 +114,7 @@ public class ContractScopeService {
     private int priority(String type) {
         return switch (type) {
             case "equipment" -> 1;
-            case "area" -> 2;
+            case "campus" -> 2;
             case "department" -> 3;
             default -> 4;
         };
@@ -163,8 +167,8 @@ public class ContractScopeService {
         String table;
         String column;
         switch (type) {
+            case "campus" -> { table = "biz_campus"; column = "campus_id"; }
             case "department" -> { table = "biz_department"; column = "department_id"; }
-            case "area" -> { table = "biz_clean_area"; column = "area_id"; }
             case "equipment" -> { table = "biz_equipment"; column = "equipment_id"; }
             default -> { return null; }
         }

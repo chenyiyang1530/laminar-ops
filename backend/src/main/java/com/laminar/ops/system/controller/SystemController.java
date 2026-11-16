@@ -214,4 +214,11 @@ public class SystemController {
         jobScheduler.reschedule(id);
         return Result.ok();
     }
+
+    @PostMapping("/job/{id}/run")
+    @Perm("system:job:edit")
+    public Result<Void> runJob(@PathVariable Long id) {
+        jobScheduler.runNow(id);
+        return Result.ok();
+    }
 }

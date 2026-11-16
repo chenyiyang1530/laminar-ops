@@ -130,32 +130,17 @@ INSERT INTO `biz_part_requisition_item` (`req_id`,`part_id`,`part_name`,`spec`,`
 (2,7,'微压差传感器','0-100Pa 4-20mA',2,380.00,760.00);
 
 -- 文档 / 知识库
-INSERT INTO `biz_document` (`doc_id`,`doc_name`,`doc_category`,`hospital_id`,`campus_id`,`equipment_id`,`file_url`,`file_name`,`file_size`,`file_type`,`version`,`uploader_id`,`uploader_name`,`upload_time`,`tags`,`remark`) VALUES
-(1,'总院手术部洁净空调系统竣工图','drawing',1,1,NULL,'/upload/demo/xm-or-hvac-asbuilt.pdf','总院手术部洁净空调系统竣工图.pdf',5242880,'pdf','V1.0',1,'陈志强','2026-09-01 10:00:00','手术部,竣工图',''),
-(2,'层流机组 ZK-5000 使用说明书','manual',1,1,1,'/upload/demo/zk5000-manual.pdf','层流机组ZK5000使用说明书.pdf',3145728,'pdf','V2.1',1,'陈志强','2026-09-02 10:00:00','层流机组,说明书',''),
-(3,'2026 年第三季度洁净区检测报告','test_report',1,1,NULL,'/upload/demo/xm-q3-test-report.pdf','2026年第三季度洁净区检测报告.pdf',2097152,'pdf','V1.0',2,'苏婷','2026-10-08 15:00:00','洁净度,检测报告',''),
-(4,'泉州城东手术部维保验收单','acceptance',3,4,NULL,'/upload/demo/qz-acceptance.pdf','泉州城东手术部维保验收单.pdf',1048576,'pdf','V1.0',4,'王强','2026-09-30 11:00:00','验收,手术部','');
+INSERT INTO `biz_document` (`doc_id`,`doc_name`,`doc_category`,`hospital_id`,`campus_id`,`equipment_id`,`file_url`,`file_name`,`file_size`,`file_type`,`version`,`uploader_id`,`uploader_name`,`upload_time`,`remark`) VALUES
+(1,'总院手术部洁净空调系统竣工图','drawing',1,1,NULL,'/upload/demo/xm-or-hvac-asbuilt.pdf','总院手术部洁净空调系统竣工图.pdf',5242880,'pdf','V1.0',1,'陈志强','2026-09-01 10:00:00',''),
+(2,'层流机组 ZK-5000 使用说明书','manual',1,1,1,'/upload/demo/zk5000-manual.pdf','层流机组ZK5000使用说明书.pdf',3145728,'pdf','V2.1',1,'陈志强','2026-09-02 10:00:00',''),
+(3,'2026 年第三季度洁净区检测报告','test_report',1,1,NULL,'/upload/demo/xm-q3-test-report.pdf','2026年第三季度洁净区检测报告.pdf',2097152,'pdf','V1.0',2,'苏婷','2026-10-08 15:00:00',''),
+(4,'泉州城东手术部维保验收单','acceptance',3,4,NULL,'/upload/demo/qz-acceptance.pdf','泉州城东手术部维保验收单.pdf',1048576,'pdf','V1.0',4,'王强','2026-09-30 11:00:00','');
 
 INSERT INTO `biz_knowledge` (`article_id`,`title`,`category`,`summary`,`content`,`tags`,`author_id`,`author_name`,`view_count`,`status`,`publish_time`,`create_time`) VALUES
 (1,'层流机组房间正压不足的排查思路','fault_case','从风量、回风、门禁、压差传感器四个方向逐项排查','## 现象\n手术室正压低于 5Pa，压差报警。\n\n## 排查步骤\n1. 检查送风量是否下降（过滤器阻力、皮带打滑）。\n2. 检查回风口是否被遮挡、回风阀开度。\n3. 检查房间门是否关闭、传递窗密封。\n4. 校验压差传感器零点。\n\n## 处置\n先恢复风量，再复测压差，必要时更换高效过滤器。','层流,压差,故障案例',1,'林伟',36,'1','2026-09-15 10:00:00',NOW()),
 (2,'洁净手术部日常巡检标准作业程序','sop','巡检项目、判定标准与记录要求','## 巡检项目\n- 机组运行电流\n- 初效/中效压差\n- 房间正压\n- 送风温湿度\n- 冷凝水排放\n\n## 记录\n逐项填写实测值，异常项拍照并转工单。','巡检,SOP',2,'苏婷',28,'1','2026-09-20 10:00:00',NOW()),
 (3,'净化空调系统突发停机应急预案','emergency','停机后的报告、处置与恢复流程','## 应急响应\n1. 5 分钟内通知科室与院感科。\n2. 评估手术安排，必要时暂停接台。\n3. 抢修恢复后做洁净度快速检测。\n4. 24 小时内提交事件报告。','应急,停机',3,'黄建国',19,'1','2026-09-25 10:00:00',NOW()),
 (4,'医用供氧汇流排压力异常处理','fault_case','压力低的常见原因与处置','常见原因：汇流排切换阀故障、减压阀失效、管路泄漏、压力传感器漂移。\n\n处置：切换备用汇流排，通知院方设备科，排查泄漏点。','供氧,压力',4,'王强',12,'1','2026-10-01 10:00:00',NOW());
-
--- 预算
-INSERT INTO `biz_budget` (`budget_id`,`budget_year`,`budget_name`,`hospital_id`,`contract_id`,`subject`,`amount`,`used_amount`,`status`,`remark`,`create_time`) VALUES
-(1,2026,'2026 年厦门第一医院人工预算',1,1,'labor',300000.00,120000.00,'1','',NOW()),
-(2,2026,'2026 年厦门第一医院备件预算',1,1,'parts',180000.00,76000.00,'1','',NOW()),
-(3,2026,'2026 年厦门第一医院差旅预算',1,1,'travel',60000.00,21000.00,'1','',NOW()),
-(4,2026,'2026 年厦门中医院备件预算',2,2,'parts',90000.00,34000.00,'1','',NOW()),
-(5,2026,'2026 年泉州第一医院人工预算',3,3,'labor',260000.00,180000.00,'1','',NOW()),
-(6,2026,'2026 年泉州第一医院外包预算',3,3,'outsource',80000.00,20000.00,'1','',NOW());
-
-INSERT INTO `biz_budget_execution` (`budget_id`,`workorder_id`,`amount`,`occur_date`,`exec_type`,`remark`,`create_time`) VALUES
-(2,3,3920.00,'2026-10-22','1','高效过滤器领用',NOW()),
-(1,3,1200.00,'2026-10-22','1','人工费',NOW()),
-(2,11,90.00,'2026-10-25','1','风机皮带领用',NOW()),
-(5,5,800.00,'2026-10-24','1','负压机组抢修人工',NOW());
 
 -- 站内消息
 INSERT INTO `biz_message` (`msg_type`,`title`,`content`,`level`,`biz_type`,`biz_id`,`biz_key`,`receiver_id`,`receiver_role`,`hospital_id`,`is_read`,`create_time`) VALUES

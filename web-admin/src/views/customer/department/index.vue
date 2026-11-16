@@ -10,18 +10,6 @@ const store = useUserStore()
 
 const tabs = [
   {
-    key: 'cleanArea',
-    label: '洁净区域',
-    resource: 'cleanArea',
-    param: 'departmentId',
-    columns: [
-      { prop: 'areaName', label: '区域名称' },
-      { prop: 'areaCode', label: '编码', width: 120 },
-      { prop: 'cleanLevel', label: '洁净级别', width: 110 },
-      { prop: 'areaSize', label: '面积(㎡)', width: 100 }
-    ]
-  },
-  {
     key: 'equipment',
     label: '设备',
     resource: 'equipment',

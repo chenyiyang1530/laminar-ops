@@ -52,7 +52,7 @@
             <el-option v-for="r in regions" :key="r.regionId" :label="r.regionName" :value="r.regionId" />
           </el-select>
         </el-form-item>
-        <el-form-item label="负责人"><el-input v-model="form.leader" /></el-form-item>
+        <el-form-item label="负责人"><el-input v-model="form.leader" :disabled="!!form.regionId" :placeholder="form.regionId ? '保存后按区域主管同步' : ''" /></el-form-item>
         <el-form-item label="电话"><el-input v-model="form.phone" /></el-form-item>
         <el-form-item label="排序"><el-input-number v-model="form.sort" :min="0" /></el-form-item>
       </el-form>

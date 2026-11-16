@@ -13,6 +13,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -21,12 +22,10 @@ public class HospitalService {
     private final BizHospitalMapper hospitalMapper;
     private final JdbcTemplate jdbc;
     private final DataScopeService dataScope;
-    private final ContractScopeService contractScope;
 
     private static final List<String[]> REFERENCES = List.of(
             new String[]{"biz_campus", "hospital_id", "院区"},
             new String[]{"biz_department", "hospital_id", "科室"},
-            new String[]{"biz_clean_area", "hospital_id", "洁净区域"},
             new String[]{"biz_contact", "hospital_id", "对接人"},
             new String[]{"biz_equipment", "hospital_id", "设备"},
             new String[]{"biz_contract", "hospital_id", "合同"},
@@ -46,25 +45,64 @@ public class HospitalService {
         if (hospital == null) {
             throw BizException.badRequest("医院不存在");
         }
+        hospital.setCompanyIds(jdbc.queryForList(
+                "select company_id from biz_company_hospital where hospital_id=? order by id", Long.class, id));
         return hospital;
     }
 
+    public List<Map<String, Object>> managerOptions(Long id) {
+        checkScope(id);
+        return jdbc.queryForList(
+                "select e.engineer_id as value, e.engineer_name as label " +
+                        "from biz_engineer e join biz_hospital h on h.hospital_id=? " +
+                        "join biz_company_hospital ch on ch.hospital_id=h.hospital_id and ch.company_id=e.company_id " +
+                        "where e.region_id=h.region_id and e.status='0' " +
+                        "order by e.engineer_name",
+                id);
+    }
+
     public void create(BizHospital hospital) {
-        checkCustomerWritable();
         if (hospital.getRegionId() == null) throw BizException.badRequest("请选择所属区域");
+        LoginUser user = AuthContext.require();
         checkRegionWrite(hospital.getRegionId());
         hospital.setHospitalId(null);
         normalizeCode(hospital);
         hospitalMapper.insert(hospital);
+        syncRelations(hospital, user);
     }
 
     public void update(BizHospital hospital) {
-        checkCustomerWritable();
         if (hospital.getRegionId() == null) throw BizException.badRequest("请选择所属区域");
         checkScope(hospital.getHospitalId());
+        LoginUser user = AuthContext.require();
         checkRegionWrite(hospital.getRegionId());
         normalizeCode(hospital);
         hospitalMapper.updateById(hospital);
+        syncRelations(hospital, user);
+    }
+
+    private void syncRelations(BizHospital hospital, LoginUser user) {
+        Long hospitalId = hospital.getHospitalId();
+        if (hospitalId == null) return;
+        java.util.Set<Long> companyIds = new java.util.LinkedHashSet<>();
+        if (hospital.getCompanyIds() != null) companyIds.addAll(hospital.getCompanyIds());
+        Long ownCompany = dataScope.companyId(user);
+        if (ownCompany != null) {
+            companyIds.clear();
+            companyIds.addAll(jdbc.queryForList(
+                    "select company_id from biz_company_hospital where hospital_id=?", Long.class, hospitalId));
+            companyIds.add(ownCompany);
+        }
+        if (companyIds.isEmpty()) return;
+        List<Long> regions = jdbc.queryForList(
+                "select region_id from biz_hospital where hospital_id=?", Long.class, hospitalId);
+        Long regionId = regions.isEmpty() ? null : regions.get(0);
+        jdbc.update("delete from biz_company_hospital where hospital_id=?", hospitalId);
+        for (Long companyId : companyIds) {
+            jdbc.update("insert ignore into biz_company_hospital(company_id,hospital_id,region_id,service_status,start_date) " +
+                            "values(?,?,?,'0',curdate())",
+                    companyId, hospitalId, regionId);
+        }
     }
 
     private void checkRegionWrite(Long regionId) {
@@ -79,13 +117,17 @@ public class HospitalService {
         if (hospital.getHospitalCode() != null) {
             hospital.setHospitalCode(hospital.getHospitalCode().trim().toUpperCase());
         }
+        if (hospital.getHospitalCode() == null || hospital.getHospitalCode().isBlank()) {
+            throw BizException.badRequest("请填写医院编码，医院编码是医院主数据的唯一标识");
+        }
     }
 
     public void remove(Long[] ids) {
-        checkCustomerWritable();
         for (Long id : ids) {
             checkScope(id);
             checkReferences(id);
+            jdbc.update("delete from biz_company_hospital where hospital_id=?", id);
+            jdbc.update("delete from biz_company_campus where hospital_id=?", id);
             hospitalMapper.deleteById(id);
         }
     }
@@ -114,14 +156,13 @@ public class HospitalService {
             throw BizException.forbidden("无权访问其他医院数据");
         }
         Long companyId = dataScope.companyId(user);
-        if (companyId != null && !contractScope.hospitalIdsForCompany(companyId).contains(id)) {
-            throw BizException.forbidden("无权访问其他公司客户数据");
-        }
-    }
-
-    private void checkCustomerWritable() {
-        if (dataScope.companyId(AuthContext.require()) != null) {
-            throw BizException.forbidden("客户主数据由平台管理员维护");
+        if (companyId != null) {
+            Integer count = jdbc.queryForObject(
+                    "select count(*) from biz_company_hospital where hospital_id=? and company_id=?",
+                    Integer.class, id, companyId);
+            if (count == null || count == 0) {
+                throw BizException.forbidden("无权访问其他公司医院");
+            }
         }
     }
 
@@ -129,7 +170,8 @@ public class HospitalService {
         List<Long> visible = dataScope.visibleHospitalIds(user);
         Long companyId = dataScope.companyId(user);
         if (companyId == null) return visible;
-        List<Long> companyHospitals = contractScope.hospitalIdsForCompany(companyId);
+        List<Long> companyHospitals = jdbc.queryForList(
+                "select hospital_id from biz_company_hospital where company_id=?", Long.class, companyId);
         if (visible == null) return companyHospitals;
         return visible.stream().filter(companyHospitals::contains).toList();
     }

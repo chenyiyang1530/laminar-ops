@@ -2,9 +2,12 @@
   <div class="layout">
     <aside class="sidebar" :class="{ collapsed }">
       <div class="logo">
-        <div class="logo-mark">LO</div>
+        <div class="logo-mark">
+          <img v-if="platformLogo" :src="platformLogo" alt="logo" />
+          <span v-else>LO</span>
+        </div>
         <div v-show="!collapsed" class="logo-text">
-          <b>层流智能运维</b>
+          <b>{{ platformName }}</b>
           <span>Laminar Ops Platform</span>
         </div>
       </div>
@@ -120,10 +123,9 @@
               <el-dropdown-menu>
                 <el-dropdown-item disabled>{{ store.roleNames.join(' / ') || '用户' }}</el-dropdown-item>
                 <el-dropdown-item command="profile" divided>个人中心</el-dropdown-item>
-                <el-dropdown-item command="release">
+                <el-dropdown-item v-if="canSeeRelease" command="release">
                   <span class="release-entry">版本更新<span v-if="store.releaseUnread" class="release-dot" /></span>
                 </el-dropdown-item>
-                <el-dropdown-item command="password">修改密码</el-dropdown-item>
                 <el-dropdown-item command="logout">退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -139,43 +141,33 @@
         </router-view>
       </main>
     </div>
-
-    <el-dialog v-model="pwdVisible" title="修改密码" width="420px">
-      <el-form :model="pwdForm" label-width="88px">
-        <el-form-item label="原密码"><el-input v-model="pwdForm.oldPassword" type="password" show-password /></el-form-item>
-        <el-form-item label="新密码"><el-input v-model="pwdForm.newPassword" type="password" show-password /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="pwdVisible = false">取消</el-button>
-        <el-button type="primary" @click="savePassword">确定</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { Star, StarFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import request from '@/utils/request'
 
 const store = useUserStore()
+const canSeeRelease = computed(() => store.isSuperAdmin || store.hasPerm('system:release:list'))
 const route = useRoute()
 const router = useRouter()
 const collapsed = ref(localStorage.getItem('laminar_collapsed') === '1')
+const platformName = ref('层流智能运维')
+const platformLogo = ref('')
 const unread = ref(0)
 const navBadges = ref({})
 const menuRef = ref(null)
-const pwdVisible = ref(false)
-const pwdForm = ref({ oldPassword: '', newPassword: '' })
 
 const FAV_KEY = 'laminar_fav_menus'
 const RECENT_KEY = 'laminar_recent_menus'
 const favPaths = ref(readList(FAV_KEY))
 const recentPaths = ref(readList(RECENT_KEY))
 let unreadTimer = null
+let sessionTimer = null
 
 function readList(key) {
   try { return JSON.parse(localStorage.getItem(key) || '[]') } catch (e) { return [] }
@@ -304,20 +296,6 @@ function onCommand(cmd) {
   if (cmd === 'logout') store.logout()
   if (cmd === 'profile') router.push('/profile')
   if (cmd === 'release') router.push('/release')
-  if (cmd === 'password') {
-    pwdForm.value = { oldPassword: '', newPassword: '' }
-    pwdVisible.value = true
-  }
-}
-
-async function savePassword() {
-  if (!pwdForm.value.newPassword || pwdForm.value.newPassword.length < 6) {
-    ElMessage.warning('新密码至少 6 位')
-    return
-  }
-  await request.put('/auth/password', pwdForm.value)
-  ElMessage.success('密码已修改')
-  pwdVisible.value = false
 }
 
 async function loadUnread() {
@@ -352,16 +330,27 @@ function menuBadge(menuId) {
 onMounted(() => {
   loadUnread()
   loadBadges()
+  request.get('/public/features').then((res) => {
+    platformName.value = res.data?.platformName || '层流智能运维'
+    platformLogo.value = res.data?.platformLogo || ''
+    if (res.data?.platformName) document.title = res.data.platformName
+  }).catch(() => {})
   if (!store.mustChangePassword) store.loadReleaseNotice().catch(() => {})
   unreadTimer = setInterval(() => {
     loadUnread()
     loadBadges()
   }, 60000)
+  sessionTimer = setInterval(() => {
+    if (localStorage.getItem('laminar_token')) {
+      request.get('/auth/session/status').catch(() => {})
+    }
+  }, 3000)
   nextTick(openActiveParent)
 })
 
 onBeforeUnmount(() => {
   if (unreadTimer) clearInterval(unreadTimer)
+  if (sessionTimer) clearInterval(sessionTimer)
 })
 </script>
 
@@ -390,7 +379,9 @@ onBeforeUnmount(() => {
   background: #1f6feb;
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 12px; letter-spacing: .4px; color: #fff;
+  overflow: hidden;
 }
+.logo-mark img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
 .logo-text { display: flex; flex-direction: column; line-height: 1.2; white-space: nowrap; min-width: 0; }
 .logo-text b { font-size: 14px; font-weight: 600; color: #f3f4f6; letter-spacing: -.2px; }
 .logo-text span { font-size: 9px; color: #6b7280; letter-spacing: .3px; margin-top: 2px; }

@@ -127,6 +127,27 @@
             <div v-if="step.comment" class="flow-comment">意见：{{ step.comment }}</div>
           </el-timeline-item>
         </el-timeline>
+        <template v-if="flow.logs && flow.logs.length">
+          <div class="flow-log-head">操作记录</div>
+          <el-timeline class="flow-line">
+            <el-timeline-item
+              v-for="(log, i) in flow.logs"
+              :key="i"
+              :timestamp="log.createTime || ''"
+              :type="log.action === 'REJECT' ? 'danger' : log.action === 'TRANSFER' ? 'warning' : 'success'"
+            >
+              <div class="flow-step">
+                <span>{{ actionText(log.action) }}</span>
+              </div>
+              <div class="flow-approver">
+                {{ log.action === 'TRANSFER'
+                  ? `${log.fromName || '—'} 将审批转交给 ${log.toName || '—'}`
+                  : `操作人：${log.fromName || '—'}` }}
+              </div>
+              <div v-if="log.comment" class="flow-comment">意见：{{ log.comment }}</div>
+            </el-timeline-item>
+          </el-timeline>
+        </template>
       </template>
     </el-dialog>
   </div>
@@ -147,7 +168,7 @@ const pendingList = ref([])
 const historyList = ref([])
 const companyList = ref([])
 const flowVisible = ref(false)
-const flow = ref({ leave: null, tasks: [] })
+const flow = ref({ leave: null, tasks: [], logs: [] })
 const transferVisible = ref(false)
 const transferTarget = ref()
 const transferUsers = ref([])
@@ -198,11 +219,13 @@ async function act(row, approved) {
 }
 
 async function openFlow(row) {
-  flow.value = { leave: null, tasks: [] }
+  flow.value = { leave: null, tasks: [], logs: [] }
   flowVisible.value = true
   const res = await request.get(`/approval/leave/${row.leaveId}/flow`)
   flow.value = res.data
 }
+
+const actionText = (action) => ({ APPROVE: '审批通过', REJECT: '审批驳回', TRANSFER: '转交审批' }[action] || action)
 
 async function openTransfer(row) {
   transferTask.value = row
@@ -237,5 +260,6 @@ onMounted(loadTab)
 .flow-head span { color: #8a99ab; font-size: 13px; }
 .flow-step { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; }
 .flow-approver { margin-top: 4px; color: #5d6b7a; font-size: 13px; }
+.flow-log-head { margin: 18px 0 10px; padding-top: 14px; border-top: 1px solid #eef2f7; font-weight: 600; color: #1f2d3d; }
 .flow-comment { margin-top: 4px; color: #8a99ab; font-size: 13px; }
 </style>

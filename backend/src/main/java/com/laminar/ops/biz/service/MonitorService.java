@@ -38,7 +38,7 @@ public class MonitorService {
     private static final String POINT_SQL =
             "select p.point_id, p.equipment_id, p.point_name, p.metric, p.unit, p.precision, " +
                     "p.warn_lower, p.warn_upper, p.alarm_lower, p.alarm_upper, " +
-                    "e.equipment_name, e.equipment_code, e.hospital_id, e.campus_id, e.area_id, e.department_id, " +
+                    "e.equipment_name, e.equipment_code, e.hospital_id, e.campus_id, e.department_id, " +
                     "e.device_type_id, e.company_id " +
                     "from biz_monitor_point p join biz_equipment e on e.equipment_id = p.equipment_id " +
                     "where p.enabled = '1' and e.status = '0' and e.simulated = '1'";
@@ -83,19 +83,43 @@ public class MonitorService {
         return points.size();
     }
 
-    /** 离线检测：心跳超时标记离线并生成离线告警 */
+    /** 离线检测：按公司/设备类型的心跳规则判断，无规则不产生离线告警 */
     public int checkOffline() {
-        int seconds = offlineSeconds();
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "select equipment_id, equipment_name, equipment_code, company_id, hospital_id, campus_id, area_id, department_id " +
-                        "from biz_equipment where status='0' and monitor_status='1' " +
-                        "and (last_heartbeat is null or last_heartbeat < date_sub(now(), interval " + seconds + " second))");
-        for (Map<String, Object> eq : rows) {
-            jdbc.update("update biz_equipment set monitor_status='0' where equipment_id=?", eq.get("equipment_id"));
-            alarmService.raiseOffline(eq, seconds);
+        List<Map<String, Object>> rules = jdbc.queryForList(
+                "select company_id, device_type_id, duration from biz_alarm_rule " +
+                        "where metric='heartbeat' and enabled='1' order by rule_id");
+        if (rules.isEmpty()) return 0;
+        java.util.Set<Long> handled = new java.util.HashSet<>();
+        int count = 0;
+        for (Map<String, Object> rule : rules) {
+            if (rule.get("company_id") == null) continue;
+            int seconds = rule.get("duration") == null ? 120 : ((Number) rule.get("duration")).intValue();
+            if (seconds <= 0) seconds = 120;
+            StringBuilder sql = new StringBuilder(
+                    "select e.equipment_id, e.equipment_name, e.equipment_code, e.company_id, e.hospital_id, " +
+                            "e.campus_id, e.department_id from biz_equipment e " +
+                            "where e.status='0' and e.monitor_status='1' and e.last_heartbeat is not null " +
+                            "and exists (select 1 from biz_monitor_point p where p.equipment_id=e.equipment_id and p.enabled='1') " +
+                            "and e.last_heartbeat < date_sub(now(), interval " + seconds + " second)");
+            List<Object> args = new ArrayList<>();
+            if (rule.get("company_id") != null) {
+                sql.append(" and e.company_id=?");
+                args.add(((Number) rule.get("company_id")).longValue());
+            }
+            if (rule.get("device_type_id") != null) {
+                sql.append(" and e.device_type_id=?");
+                args.add(((Number) rule.get("device_type_id")).longValue());
+            }
+            for (Map<String, Object> eq : jdbc.queryForList(sql.toString(), args.toArray())) {
+                Long equipmentId = ((Number) eq.get("equipment_id")).longValue();
+                if (!handled.add(equipmentId)) continue;
+                jdbc.update("update biz_equipment set monitor_status='0' where equipment_id=?", equipmentId);
+                alarmService.raiseOffline(eq, seconds);
+                count++;
+            }
         }
-        if (!rows.isEmpty()) log.info("[离线] 标记 {} 台设备离线（阈值 {} 秒）", rows.size(), seconds);
-        return rows.size();
+        if (count > 0) log.info("[离线] 标记 {} 台设备离线", count);
+        return count;
     }
 
     private int offlineSeconds() {
@@ -134,9 +158,17 @@ public class MonitorService {
         log.info("[采集] 回填 24h 历史数据 {} 条", batch.size());
     }
 
-    public Map<String, Object> overview(List<Long> hospitalIds) {
+    public Map<String, Object> overview(List<Long> hospitalIds, Long campusId, Long departmentId) {
         String hf = filter("e.hospital_id", hospitalIds);
         String hfAlarm = filter("hospital_id", hospitalIds);
+        if (campusId != null) {
+            hf += " and e.campus_id=" + campusId + " ";
+            hfAlarm += " and campus_id=" + campusId + " ";
+        }
+        if (departmentId != null) {
+            hf += " and e.department_id=" + departmentId + " ";
+            hfAlarm += " and department_id=" + departmentId + " ";
+        }
         LoginUser current = AuthContext.get();
         Long companyId = current == null ? null : dataScope.companyId(current);
         if (companyId != null) {
@@ -158,11 +190,11 @@ public class MonitorService {
 
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "select e.equipment_id, e.equipment_code, e.equipment_name, e.run_status, e.monitor_status, " +
-                        "e.last_heartbeat, h.hospital_name, c.campus_name, a.area_name, t.type_name " +
+                        "e.last_heartbeat, h.hospital_name, c.campus_name, d.department_name, t.type_name " +
                         "from biz_equipment e " +
                         "left join biz_hospital h on h.hospital_id = e.hospital_id " +
                         "left join biz_campus c on c.campus_id = e.campus_id " +
-                        "left join biz_clean_area a on a.area_id = e.area_id " +
+                        "left join biz_department d on d.department_id = e.department_id " +
                         "left join biz_device_type t on t.type_id = e.device_type_id " +
                         "where e.status='0' " + hf + " order by e.monitor_status, e.equipment_id");
         List<Map<String, Object>> pointRows = jdbc.queryForList(
@@ -206,10 +238,10 @@ public class MonitorService {
 
     public Map<String, Object> equipmentDetail(Long equipmentId) {
         Map<String, Object> equipment = jdbc.queryForMap(
-                "select e.*, h.hospital_name, c.campus_name, a.area_name, t.type_name " +
+                "select e.*, h.hospital_name, c.campus_name, d.department_name, t.type_name " +
                         "from biz_equipment e left join biz_hospital h on h.hospital_id=e.hospital_id " +
                         "left join biz_campus c on c.campus_id=e.campus_id " +
-                        "left join biz_clean_area a on a.area_id=e.area_id " +
+                        "left join biz_department d on d.department_id=e.department_id " +
                         "left join biz_device_type t on t.type_id=e.device_type_id where e.equipment_id=?", equipmentId);
         List<Map<String, Object>> points = jdbc.queryForList(
                 "select * from biz_monitor_point where equipment_id=? and enabled='1' order by sort, point_id", equipmentId);
@@ -243,7 +275,7 @@ public class MonitorService {
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "select p.point_id, p.equipment_id, p.point_name, p.metric, p.unit, p.precision, " +
                         "p.warn_lower, p.warn_upper, p.alarm_lower, p.alarm_upper, " +
-                        "e.equipment_name, e.hospital_id, e.campus_id, e.area_id, e.department_id, e.device_type_id " +
+                        "e.equipment_name, e.hospital_id, e.campus_id, e.department_id, e.device_type_id " +
                         "from biz_monitor_point p join biz_equipment e on e.equipment_id = p.equipment_id " +
                         "where e.equipment_code = ? and p.point_code = ?", equipmentCode, pointCode);
         if (rows.isEmpty()) {
@@ -273,8 +305,8 @@ public class MonitorService {
         Long companyId = number(p.get("company_id"));
         return rules.stream().filter(r -> {
             Object ruleCompany = r.get("company_id");
-            return ruleCompany == null || (companyId != null
-                    && companyId.equals(((Number) ruleCompany).longValue()));
+            return companyId != null && ruleCompany != null
+                    && companyId.equals(((Number) ruleCompany).longValue());
         }).toList();
     }
 
@@ -352,9 +384,22 @@ public class MonitorService {
             breachStreak.remove(key);
         }
         Double threshold = dbl(rule.get("threshold"));
+        Double threshold2 = dbl(rule.get("threshold2"));
         String op = str(rule.get("operator"));
-        String content = "规则[" + rule.get("rule_name") + "]：" + p.get("equipment_name") + " " + p.get("point_name") +
-                " 实测 " + trim(value) + str(p.get("unit")) + "，" + opText(op) + " " + trim(threshold) + str(p.get("unit"));
+        String content;
+        if ("between".equals(op) && threshold != null && threshold2 != null) {
+            String unit = str(p.get("unit"));
+            String direction = value < threshold
+                    ? "低于下限 " + trim(threshold) + unit
+                    : "高于上限 " + trim(threshold2) + unit;
+            threshold = value < threshold ? threshold : threshold2;
+            content = "规则[" + rule.get("rule_name") + "]：" + p.get("equipment_name") + " " + p.get("point_name") +
+                    " 实测 " + trim(value) + unit + "，" + direction + "（允许范围 " +
+                    trim(threshold2 == null ? threshold : dbl(rule.get("threshold"))) + "~" + trim(threshold2) + unit + "）";
+        } else {
+            content = "规则[" + rule.get("rule_name") + "]：" + p.get("equipment_name") + " " + p.get("point_name") +
+                    " 实测 " + trim(value) + str(p.get("unit")) + "，" + opText(op) + " " + trim(threshold) + str(p.get("unit"));
+        }
         return new RuleEval(violated, triggered, threshold, content);
     }
 
@@ -365,9 +410,9 @@ public class MonitorService {
         if (t == null && !"between".equals(op)) return false;
         return switch (op) {
             case "gt" -> value > t;
-            case "gte" -> value >= t;
+            case "gte", "ge" -> value >= t;
             case "lt" -> value < t;
-            case "lte" -> value <= t;
+            case "lte", "le" -> value <= t;
             case "eq" -> Math.abs(value - t) < 1e-6;
             case "between" -> t != null && t2 != null && (value < t || value > t2);
             default -> false;
@@ -378,8 +423,10 @@ public class MonitorService {
         return switch (op) {
             case "gt" -> "高于";
             case "gte" -> "不低于";
+            case "ge" -> "不低于";
             case "lt" -> "低于";
             case "lte" -> "不高于";
+            case "le" -> "不高于";
             case "eq" -> "等于";
             case "between" -> "超出范围";
             default -> op;

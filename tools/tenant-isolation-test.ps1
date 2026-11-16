@@ -8,7 +8,7 @@ param(
   [string]$CompanyAUser = 'manager',
   [string]$CompanyBCode = 'FJASL-ZZ',
   [string]$CompanyBUser = 'ceo_asl',
-  [string]$Password = '123456'
+  [string]$Password = $env:TEST_PASSWORD
 )
 
 $ErrorActionPreference = 'Stop'
