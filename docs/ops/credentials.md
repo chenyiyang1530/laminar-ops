@@ -2,44 +2,57 @@
 
 ## MySQL
 
-应用不再使用 root。
-
-专用账号：
+应用使用专用账号：
 
 ```text
 laminar_ops@127.0.0.1
 ```
 
-权限：
+只授权 `laminar_ops.*`，不再使用 root 连接业务。
+
+root：
 
 ```text
-laminar_ops.* 的 SELECT/INSERT/UPDATE/DELETE
-CREATE/ALTER/DROP/INDEX/REFERENCES
-LOCK TABLES/SHOW VIEW/TRIGGER/EVENT
-EXECUTE/CREATE ROUTINE/ALTER ROUTINE
-SHOW_ROUTINE
+root@localhost
 ```
 
-应用连接：
+只允许本机，不允许远程 root。
+
+root 密码已改为强密码，保存在 `.secrets.local` 的：
 
 ```text
-DB_USERNAME=laminar_ops
-DB_PASSWORD=见 .secrets.local
+MYSQL_ROOT_PASSWORD
 ```
 
-不在代码中保存密码。
-
-## Redis
-
-本机 Redis 版本为 3.0，不支持 ACL 多用户。
-
-因此只能使用：
+脚本使用该变量：
 
 ```text
-requirepass 密码认证
+restore-drill.ps1
+cleanup-test-company.ps1
+cleanup-test-data.ps1
 ```
 
-已配置强密码，并持久化到 Redis 服务配置。
+## Redis 8 + ACL
+
+已使用 Redis 8.10.3 Windows 构建，监听：
+
+```text
+127.0.0.1:6380
+```
+
+ACL 文件：
+
+```text
+D:\ideaWork\redis8\Redis-8.10.3-Windows-x64-msys2\users.acl
+```
+
+用户：
+
+```text
+laminar_ops
+```
+
+默认用户关闭，只允许 ACL 用户认证。
 
 Spring 配置：
 
@@ -47,35 +60,27 @@ Spring 配置：
 spring:
   data:
     redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
       password: ${REDIS_PASSWORD:}
 ```
 
-注意：`redis-cli` 现在需要：
-
-```bash
-redis-cli -a "$REDIS_PASSWORD"
-```
-
-如果升级到 Redis 6+，建议改用 ACL：
+`.secrets.local` 已设置：
 
 ```text
-ACL SETUSER laminar_ops on >密码 ~* +@all
+REDIS_HOST
+REDIS_PORT=6380
+REDIS_USERNAME=laminar_ops
+REDIS_PASSWORD
 ```
 
-并配置：
+旧的 Redis 3 服务仍在 6379，保留作为回滚；确认稳定后可停止。
 
-```yaml
-spring:
-  data:
-    redis:
-      username: laminar_ops
-      password: ...
-```
-
-## 仍需处理
+## 注意
 
 ```text
-MySQL root 密码仍为开发密码，生产需修改或禁用远程 root
-Redis 3.0 无 ACL，生产建议升级 Redis 6+
-备份账号可继续使用应用账号（已授予 dump 所需权限）
+Redis 8 是第三方 Windows 构建，生产建议 Linux 原生 Redis 7/8
+ACL 文件包含密码，不要提交仓库
+MySQL root 和管理脚本密码放在 .secrets.local
 ```

@@ -8,9 +8,10 @@ param(
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-if (-not $env:DB_PASSWORD) {
-  throw "请先设置环境变量 DB_PASSWORD"
+if (-not $env:MYSQL_ROOT_PASSWORD) {
+  throw "请先设置环境变量 MYSQL_ROOT_PASSWORD"
 }
+$RootPassword = $env:MYSQL_ROOT_PASSWORD
 
 $mysqldump = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqldump.exe"
 $mysql = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe"
@@ -21,7 +22,7 @@ $stamp = Get-Date -Format "yyyyMMddHHmmss"
 $drillDb = "${DbName}_drill_$stamp"
 $dumpFile = Join-Path $env:TEMP "laminar-restore-drill-$stamp.sql"
 $created = $false
-$env:MYSQL_PWD = $env:DB_PASSWORD
+$env:MYSQL_PWD = $RootPassword
 
 try {
   Write-Host "[drill] 导出源库 $DbName ..."

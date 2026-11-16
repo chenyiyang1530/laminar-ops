@@ -7,8 +7,8 @@ $ErrorActionPreference = "Stop"
 
 $mysql = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe"
 if (-not (Test-Path $mysql)) { $mysql = "mysql.exe" }
-if (-not $env:DB_PASSWORD) { throw "请先设置 DB_PASSWORD" }
-$env:MYSQL_PWD = $env:DB_PASSWORD
+if (-not $env:MYSQL_ROOT_PASSWORD) { throw "请先设置 MYSQL_ROOT_PASSWORD" }
+$env:MYSQL_PWD = $env:MYSQL_ROOT_PASSWORD
 $db = "laminar_ops"
 
 function Query($sql) {
@@ -48,3 +48,4 @@ $sql += "COMMIT; SET FOREIGN_KEY_CHECKS=1;`n"
 $sql | & $mysql --host=127.0.0.1 --user=root --default-character-set=utf8mb4 $db 2>$null
 if ($LASTEXITCODE -ne 0) { throw "清理失败，事务未提交" }
 Write-Host "测试公司/医院及关联数据已清理。" -ForegroundColor Green
+
