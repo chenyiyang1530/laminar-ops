@@ -321,9 +321,12 @@ public class SystemService {
                 companyId, str(body.getOrDefault("status", "0")),
                 phoneVerified, phoneVerified, emailVerified, emailVerified, id);
         if (body.containsKey("roleIds")) {
+            List<Long> beforeRoles = jdbc.queryForList(
+                    "select role_id from sys_user_role where user_id=?", Long.class, id);
             validateRoleAssignments(companyId, roleIds);
             jdbc.update("delete from sys_user_role where user_id=?", id);
             saveRoles(id, roleIds);
+            logRemovedRoles(id, beforeRoles, roleIds);
         }
         if (hospitalId != null) validateHospitalCompany(hospitalId, companyId);
         if (body.containsKey("roleIds") || body.containsKey("hospitalId")) {
@@ -344,6 +347,9 @@ public class SystemService {
         for (Long id : ids) {
             if (id == 1L) throw BizException.badRequest("超级管理员不可删除");
             assertCanManageUser(id, false);
+            for (Long roleId : jdbc.queryForList("select role_id from sys_user_role where user_id=?", Long.class, id)) {
+                logRoleAssign(roleId, id, "revoke", "删除用户时移除角色");
+            }
             jdbc.update("update biz_engineer set user_id=null where user_id=?", id);
             jdbc.update("delete from sys_user_role where user_id=?", id);
             jdbc.update("delete from sys_user where user_id=?", id);
@@ -585,6 +591,20 @@ public class SystemService {
         }
     }
 
+    private void logRemovedRoles(Long userId, List<Long> before, Object afterRoleIds) {
+        List<Long> after = new ArrayList<>();
+        if (afterRoleIds instanceof List<?> list) {
+            for (Object item : list) {
+                if (item != null) after.add(((Number) item).longValue());
+            }
+        }
+        for (Long roleId : before) {
+            if (!after.contains(roleId)) {
+                logRoleAssign(roleId, userId, "revoke", "移除角色");
+            }
+        }
+    }
+
     private void saveRoles(Long userId, Object roleIds) {
         if (roleIds instanceof List<?> list) {
             for (Object r : list) {
@@ -611,7 +631,7 @@ public class SystemService {
         StringBuilder where = new StringBuilder(" where l.role_id=? ");
         args.add(String.valueOf(roleId));
         if (!actionFilter.isBlank()) {
-            if (!List.of("assign", "create", "update", "delete").contains(actionFilter)) {
+            if (!List.of("assign", "revoke", "create", "update", "delete").contains(actionFilter)) {
                 throw BizException.badRequest("不支持的动作类型");
             }
             where.append(" and l.action=? ");

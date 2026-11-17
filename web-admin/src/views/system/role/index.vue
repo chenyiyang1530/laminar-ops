@@ -113,6 +113,7 @@
         <el-select v-model="assignAction" style="width: 140px" @change="loadAssignLogs(1)">
           <el-option label="全部动作" value="" />
           <el-option label="分配" value="assign" />
+          <el-option label="移除" value="revoke" />
           <el-option label="创建" value="create" />
           <el-option label="修改" value="update" />
           <el-option label="删除" value="delete" />
@@ -172,7 +173,7 @@ const menuDrawer = ref(false)
 const menus = ref([])
 const treeRef = ref()
 const scopeText = (s) => ({ all: '全部', region: '本区域', hospital: '本医院', self: '仅本人' }[s] || s)
-const actionText = (a) => ({ assign: '分配', create: '创建', update: '修改', delete: '删除' }[a] || a)
+const actionText = (a) => ({ assign: '分配', revoke: '移除', create: '创建', update: '修改', delete: '删除' }[a] || a)
 
 function buildTree(list) {
   const map = {}, roots = []
@@ -312,6 +313,8 @@ onMounted(load)
 .perm-label { color: #606266; font-size: 13px; }
 .perm-hint { color: #909399; font-size: 12px; line-height: 1.5; margin-bottom: 10px; }
 </style>
+
+
 
 
 
