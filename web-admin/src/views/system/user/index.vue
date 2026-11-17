@@ -78,6 +78,14 @@
     </div>
 
     <el-dialog v-model="dialog" :title="form.userId ? '编辑员工' : '新增员工'" width="760px" destroy-on-close>
+      <el-alert
+        v-if="store.companyId"
+        title="院方账号由平台管理员统一创建，公司管理员只能创建公司员工或工程师。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="hospital-account-tip"
+      />
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-form-item label="账号类型">
           <el-radio-group v-model="accountType" :disabled="!!form.userId" class="account-type-group" @change="onAccountTypeChange">
@@ -378,10 +386,12 @@ onMounted(async () => {
 
 <style scoped>
 .pager { margin-top: 14px; justify-content: flex-end; }
+.hospital-account-tip { margin-bottom: 12px; }
 .account-type-group { display: flex; flex-wrap: nowrap; }
 .account-type-group :deep(.el-radio-button__inner) {
   padding: 8px 14px;
   white-space: nowrap;
 }
 </style>
+
 

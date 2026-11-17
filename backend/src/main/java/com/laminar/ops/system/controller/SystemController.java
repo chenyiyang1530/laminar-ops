@@ -138,8 +138,11 @@ public class SystemController {
 
     @GetMapping("/role/{id}/assignmentLogs")
     @Perm("system:role:list")
-    public Result<List<Map<String, Object>>> roleAssignLogs(@PathVariable Long id) {
-        return Result.ok(systemService.roleAssignLogs(id));
+    public Result<Map<String, Object>> roleAssignLogs(@PathVariable Long id,
+                                                      @RequestParam(required = false) String action,
+                                                      @RequestParam(defaultValue = "1") Integer pageNum,
+                                                      @RequestParam(defaultValue = "10") Integer pageSize) {
+        return Result.ok(systemService.roleAssignLogs(id, action, pageNum, pageSize));
     }
 
     @PutMapping("/role/{id}/menus")

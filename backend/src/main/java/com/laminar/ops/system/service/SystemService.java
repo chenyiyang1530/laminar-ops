@@ -546,7 +546,7 @@ public class SystemService {
         }
     }
 
-    public List<Map<String, Object>> roleAssignLogs(Long roleId) {
+    public Map<String, Object> roleAssignLogs(Long roleId, String action, Integer pageNum, Integer pageSize) {
         LoginUser user = AuthContext.require();
         Long companyId = dataScope.companyId(user);
         if (companyId != null) {
@@ -555,22 +555,45 @@ public class SystemService {
                 throw BizException.forbidden("无权查看该角色分配记录");
             }
         }
-        return jdbc.queryForList(
+        int page = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int size = pageSize == null || pageSize < 1 ? 10 : Math.min(pageSize, 100);
+        String actionFilter = action == null ? "" : action.trim();
+        List<String> args = new ArrayList<>();
+        StringBuilder where = new StringBuilder(" where l.role_id=? ");
+        args.add(String.valueOf(roleId));
+        if (!actionFilter.isBlank()) {
+            if (!List.of("assign", "create", "update", "delete").contains(actionFilter)) {
+                throw BizException.badRequest("不支持的动作类型");
+            }
+            where.append(" and l.action=? ");
+            args.add(actionFilter);
+        }
+        Long total = jdbc.queryForObject(
+                "select count(*) from sys_role_assign_log l" + where, Long.class, args.toArray());
+        List<Object> pageArgs = new ArrayList<>(args);
+        pageArgs.add(size);
+        pageArgs.add((page - 1) * size);
+        List<Map<String, Object>> records = jdbc.queryForList(
                 "select l.log_id as `logId`, l.role_id as `roleId`, l.user_id as `userId`, l.action, " +
                         "l.operator_name as `operatorName`, l.detail, date_format(l.create_time,'%Y-%m-%d %H:%i:%s') as `createTime`, " +
-                        "r.role_name as `roleName`, u.nick_name as `userName` " +
+                        "coalesce(l.role_name_snapshot, r.role_name) as `roleName`, u.nick_name as `userName` " +
                         "from sys_role_assign_log l left join sys_role r on r.role_id=l.role_id " +
-                        "left join sys_user u on u.user_id=l.user_id where l.role_id=? order by l.log_id desc limit 200",
-                roleId);
+                        "left join sys_user u on u.user_id=l.user_id" + where +
+                        " order by l.log_id desc limit ? offset ?", pageArgs.toArray());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("records", records);
+        result.put("total", total == null ? 0 : total);
+        return result;
     }
 
     private void logRoleAssign(Long roleId, Long userId, String action, String detail) {
         LoginUser user = AuthContext.require();
         Long operatorId = user == null ? null : user.getUserId();
         String operatorName = user == null ? "system" : user.getNickName();
-        jdbc.update("insert into sys_role_assign_log(role_id,user_id,action,operator_id,operator_name,detail) " +
-                        "values(?,?,?,?,?,?)",
-                roleId, userId, action, operatorId, operatorName, detail);
+        String roleName = jdbc.queryForObject("select role_name from sys_role where role_id=?", String.class, roleId);
+        jdbc.update("insert into sys_role_assign_log(role_id,role_name_snapshot,user_id,action,operator_id,operator_name,detail) " +
+                        "values(?,?,?,?,?,?,?)",
+                roleId, roleName, userId, action, operatorId, operatorName, detail);
     }
 
     private void applyRoleDefaultDept(Long userId, Long companyId) {

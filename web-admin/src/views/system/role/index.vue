@@ -11,7 +11,7 @@
       <div class="page-title">
         <div><h2>角色管理</h2><div class="sub">角色权限、数据范围与菜单授权</div></div>
         <div class="role-actions">
-          <el-select v-model="assignableFilter" style="width: 140px" placeholder="可分配">
+          <el-select v-model="assignableFilter" style="width: 140px" placeholder="可分配" @change="syncFilterUrl">
             <el-option label="全部角色" value="" />
             <el-option label="可分配" value="1" />
             <el-option label="不可分配" value="0" />
@@ -58,6 +58,14 @@
     </div>
 
     <el-dialog v-model="dialog" :title="form.roleId ? '编辑角色' : '新增角色'" width="520px">
+      <el-alert
+        v-if="form.roleType === 'standard'"
+        title="平台标准角色不可删除，权限字符不可修改；仅可调整名称、排序、数据范围和备注。"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="standard-alert"
+      />
       <el-form :model="form" label-width="86px">
         <el-form-item label="角色名称" required><el-input v-model="form.roleName" /></el-form-item>
         <el-form-item label="权限字符" required>
@@ -100,16 +108,34 @@
       <div style="margin-top: 16px"><el-button type="primary" @click="saveMenus">保存授权</el-button></div>
     </el-drawer>
 
-    <el-drawer v-model="assignDrawer" size="520px" :title="'分配记录 · ' + (assignRole?.roleName || '')">
+    <el-drawer v-model="assignDrawer" size="560px" :title="'分配记录 · ' + (assignRole?.roleName || '')">
+      <div class="assign-toolbar">
+        <el-select v-model="assignAction" style="width: 140px" @change="loadAssignLogs(1)">
+          <el-option label="全部动作" value="" />
+          <el-option label="分配" value="assign" />
+          <el-option label="创建" value="create" />
+          <el-option label="修改" value="update" />
+          <el-option label="删除" value="delete" />
+        </el-select>
+        <span class="assign-total">共 {{ assignTotal }} 条</span>
+      </div>
       <el-table :data="assignLogs" stripe>
         <el-table-column prop="createTime" label="时间" width="160" />
-        <el-table-column prop="action" label="动作" width="90">
+        <el-table-column prop="action" label="动作" width="80">
           <template #default="{ row }">{{ actionText(row.action) }}</template>
         </el-table-column>
         <el-table-column prop="userName" label="用户" />
         <el-table-column prop="operatorName" label="操作人" width="110" />
         <el-table-column prop="detail" label="说明" show-overflow-tooltip />
       </el-table>
+      <el-pagination
+        v-model:current-page="assignPage"
+        :page-size="assignSize"
+        :total="assignTotal"
+        layout="prev, pager, next"
+        class="assign-pager"
+        @change="loadAssignLogs"
+      />
     </el-drawer>
   </div>
 </template>
@@ -118,17 +144,24 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
+import { useRoute, useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
+const route = useRoute()
+const router = useRouter()
 const has = (a) => store.hasPerm('system:role:' + a)
 const canEditRow = (row) => store.isSuperAdmin || !!row.companyId
 const records = ref([])
-const assignableFilter = ref('')
+const assignableFilter = ref(String(route.query.assignable || ''))
 const assignDrawer = ref(false)
 const assignRole = ref(null)
 const assignLogs = ref([])
+const assignAction = ref('')
+const assignPage = ref(1)
+const assignSize = ref(10)
+const assignTotal = ref(0)
 const filteredRecords = computed(() => assignableFilter.value
   ? records.value.filter((row) => row.assignable === assignableFilter.value)
   : records.value)
@@ -238,7 +271,26 @@ async function openMenus(row) {
 async function openAssignLogs(row) {
   assignRole.value = row
   assignDrawer.value = true
-  assignLogs.value = (await request.get(`/system/role/${row.roleId}/assignmentLogs`)).data
+  assignAction.value = ''
+  assignPage.value = 1
+  await loadAssignLogs()
+}
+
+async function loadAssignLogs(page = assignPage.value) {
+  assignPage.value = page || 1
+  const res = await request.get(`/system/role/${assignRole.value.roleId}/assignmentLogs`, {
+    params: {
+      action: assignAction.value || undefined,
+      pageNum: assignPage.value,
+      pageSize: assignSize.value
+    }
+  })
+  assignLogs.value = res.data.records || []
+  assignTotal.value = res.data.total || 0
+}
+
+function syncFilterUrl() {
+  router.replace({ query: { ...route.query, assignable: assignableFilter.value || undefined } })
 }
 async function saveMenus() {
   const keys = treeRef.value.getCheckedKeys().concat(treeRef.value.getHalfCheckedKeys())
@@ -252,7 +304,14 @@ onMounted(load)
 .role-tip { margin-bottom: 12px; }
 .role-actions { display: flex; align-items: center; gap: 10px; }
 .standard-hint { width: 100%; margin-top: 4px; color: #909399; font-size: 11px; line-height: 1.4; }
+.standard-alert { margin-bottom: 12px; }
+.assign-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.assign-total { color: #909399; font-size: 12px; }
+.assign-pager { margin-top: 12px; justify-content: flex-end; }
 .perm-presets { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .perm-label { color: #606266; font-size: 13px; }
 .perm-hint { color: #909399; font-size: 12px; line-height: 1.5; margin-bottom: 10px; }
 </style>
+
+
+

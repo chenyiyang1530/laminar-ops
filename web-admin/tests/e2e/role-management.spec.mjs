@@ -38,12 +38,26 @@ test('标准角色不可删除且角色管理截图', async ({ page, request }) 
     maskColor: '#f5f7fa',
     mask: [page.locator('.el-alert')]
   })
+
+  await page.locator('.role-actions .el-select').click()
+  await page.locator('.el-select-dropdown__item:visible').filter({ hasText: '不可分配' }).click()
+  await expect(page).toHaveURL(/assignable=0/)
+  await page.reload()
+  await expect(page.locator('.role-actions .el-select')).toContainText('不可分配')
 })
 
-test('公司管理员禁止创建院方账号，平台管理员可创建', async ({ request }) => {
+test('公司管理员禁止创建院方账号，平台管理员可创建', async ({ page, request }) => {
   const suffix = Date.now().toString().slice(-6)
   const username = `e2e_auto_sub_${suffix}`
   const nickName = `E2E自动子管理${suffix}`
+  await login(page, 'e2e_company')
+  await page.goto('/app/staff/people?tab=user')
+  await page.getByRole('button', { name: '新增员工' }).click()
+  const dialog = page.locator('.el-dialog').filter({ hasText: '新增员工' })
+  await expect(dialog.getByText('院方账号由平台管理员统一创建，公司管理员只能创建公司员工或工程师。')).toBeVisible()
+  await expect(dialog.getByText('院方子管理员', { exact: true })).toHaveCount(0)
+  await dialog.getByRole('button', { name: '取消' }).click()
+
   const companyLogin = await request.post('/api/auth/login', {
     data: { companyCode: data.companyCode, username: 'e2e_company', password: data.password }
   })
@@ -82,7 +96,10 @@ test('公司管理员禁止创建院方账号，平台管理员可创建', async
   const record = ((await rows.json()).data.records || []).find((row) => row.username === username)
   expect(record, '平台管理员创建的院方子管理员账号').toBeTruthy()
   expect(record.roleNames).toContain('院方子管理员')
-  const logs = await request.get('/api/system/role/202/assignmentLogs', { headers })
-  expect((await logs.json()).data.some((log) => log.action === 'assign' && log.userName === nickName)).toBeTruthy()
+  const logs = await request.get('/api/system/role/202/assignmentLogs?action=assign&pageNum=1&pageSize=1', { headers })
+  const logData = (await logs.json()).data
+  expect(logData.total).toBeGreaterThanOrEqual(1)
+  expect(logData.records.length).toBeLessThanOrEqual(1)
+  expect(logData.records[0].roleName).toBe('院方子管理员')
   await request.delete(`/api/system/user/${record.userId}`, { headers })
 })
