@@ -56,9 +56,8 @@ public class FileCheckService {
     private final JdbcTemplate jdbc;
     private final SystemAlertService systemAlertService;
     private final FileCheckProperties properties;
-    private final MailNotificationService mailNotificationService;
-    private final FileCheckRecipientService recipientService;
-    private final FileCheckExportService exportService;
+    private final FileCheckQueryService queryService;
+    private final FileCheckNotificationService notificationService;
 
     @Value("${laminar.upload.path:}")
     private String uploadPath;
@@ -98,8 +97,6 @@ public class FileCheckService {
                         .collect(Collectors.joining("；"));
                 systemAlertService.error("file-existence-missing", "文件存在性巡检告警",
                         "发现 " + missing.size() + " 个文件丢失：" + samples);
-                mailNotificationService.send("文件巡检发现 " + missing.size() + " 个文件丢失",
-                        "文件巡检批次 " + runId + " 发现 " + missing.size() + " 个文件丢失。\n" + samples);
             }
             if ("scheduled".equals(triggerType)) {
                 audit("文件巡检完成", "0", null, "batch=" + runId + " checked=" + scan.checked() + " missing=" + missing.size());
@@ -111,7 +108,17 @@ public class FileCheckService {
             result.put("missing", missing.size());
             result.put("recovered", recovered);
             result.put("elapsedMs", System.currentTimeMillis() - start);
-            sendMissingEmails(missing);
+            notificationService.sendMissingEmailRows(missing.stream().map(m -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("severity", m.severity());
+                row.put("tableName", m.ref().table());
+                row.put("recordId", m.recordId());
+                row.put("fileType", m.fileType());
+                row.put("filePath", m.path());
+                row.put("companyId", m.context().companyId());
+                row.put("hospitalId", m.context().hospitalId());
+                return row;
+            }).toList());
             return result;
         } catch (Exception e) {
             String message = e.getMessage() == null ? "unknown" : e.getMessage();
@@ -130,97 +137,22 @@ public class FileCheckService {
     }
 
     public Map<String, Object> pageRuns(int pageNum, int pageSize) {
-        int offset = Math.max(0, (pageNum - 1) * pageSize);
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "select run_id as runId, trigger_type as triggerType, status, checked, missing, recovered, " +
-                        "start_time as startTime, end_time as endTime, error_msg as errorMsg " +
-                        "from sys_file_check_run order by run_id desc limit ? offset ?", pageSize, offset);
-        Integer total = jdbc.queryForObject("select count(*) from sys_file_check_run", Integer.class);
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("records", rows);
-        result.put("total", total == null ? 0 : total);
-        return result;
+        return queryService.pageRuns(pageNum, pageSize);
     }
 
     public Map<String, Object> pageItems(int pageNum, int pageSize, String status, String keyword,
-                                         Long companyId, Long hospitalId, String fileType, String severity, Long itemId) {        int offset = Math.max(0, (pageNum - 1) * pageSize);
-        List<Object> args = new ArrayList<>();
-        StringBuilder where = new StringBuilder(" where 1=1 ");
-        if (status != null && !status.isBlank()) { where.append(" and i.status=?"); args.add(status); }
-        if (keyword != null && !keyword.isBlank()) {
-            where.append(" and (i.file_path like ? or i.table_name like ?)");
-            args.add("%" + keyword.trim() + "%");
-            args.add("%" + keyword.trim() + "%");
-        }
-        if (companyId != null) { where.append(" and i.company_id=?"); args.add(companyId); }
-        if (hospitalId != null) { where.append(" and i.hospital_id=?"); args.add(hospitalId); }
-        if (fileType != null && !fileType.isBlank()) { where.append(" and i.file_type=?"); args.add(fileType); }
-        if (severity != null && !severity.isBlank()) { where.append(" and i.severity=?"); args.add(severity); }
-        if (itemId != null) { where.append(" and i.item_id=?"); args.add(itemId); }
-        Integer total = jdbc.queryForObject("select count(*) from sys_file_check_item i" + where, Integer.class, args.toArray());
-        args.add(pageSize);
-        args.add(offset);
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "select i.item_id as itemId, i.run_id as runId, i.table_name as tableName, i.record_id as recordId, " +
-                        "i.file_column as fileColumn, i.file_path as filePath, i.file_type as fileType, i.severity, " +
-                        "i.sla_hours as slaHours, i.sla_deadline as slaDeadline, i.escalation_level as escalationLevel, " +
-                        "i.company_id as companyId, i.hospital_id as hospitalId, i.status, " +
-                        "i.first_seen as firstSeen, i.last_seen as lastSeen, i.resolved_time as resolvedTime, " +
-                        "c.company_name as companyName, h.hospital_name as hospitalName " +
-                        "from sys_file_check_item i left join biz_company c on c.company_id=i.company_id " +
-                        "left join biz_hospital h on h.hospital_id=i.hospital_id" + where +
-                        " order by i.status asc, i.severity asc, i.last_seen desc limit ? offset ?", args.toArray());
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("records", rows);
-        result.put("total", total == null ? 0 : total);
-        return result;
+                                         Long companyId, Long hospitalId, String fileType, String severity, Long itemId) {
+        return queryService.pageItems(pageNum, pageSize, status, keyword,
+                companyId, hospitalId, fileType, severity, itemId);
     }
 
     public List<Map<String, Object>> exportRows(String status, String keyword, Long companyId,
                                                 Long hospitalId, String fileType, String severity) {
-        return (List<Map<String, Object>>) pageItems(1, 10000, status, keyword,
-                companyId, hospitalId, fileType, severity, null).get("records");
+        return queryService.exportRows(status, keyword, companyId, hospitalId, fileType, severity);
     }
 
     public List<Map<String, Object>> trend(int days, Long companyId, Long hospitalId, String granularity) {
-        int span = Math.max(1, Math.min(days, 365));
-        String mode = granularity == null ? "day" : granularity.toLowerCase();
-        String format = "month".equals(mode) ? "%Y-%m" : "week".equals(mode) ? "%x-W%v" : "%Y-%m-%d";
-        String group = "date_format(first_seen,'" + format + "')";
-        String resolvedGroup = "date_format(resolved_time,'" + format + "')";
-        LocalDate start = LocalDate.now().minusDays(span - 1L);
-        Map<String, long[]> data = new LinkedHashMap<>();
-        if ("day".equals(mode)) {
-            for (int i = 0; i < span; i++) {
-                data.put(start.plusDays(i).format(DateTimeFormatter.ISO_DATE), new long[]{0, 0});
-            }
-        }
-        List<Object> args = new ArrayList<>();
-        args.add(start);
-        StringBuilder scope = new StringBuilder();
-        if (companyId != null) { scope.append(" and company_id=?"); args.add(companyId); }
-        if (hospitalId != null) { scope.append(" and hospital_id=?"); args.add(hospitalId); }
-        jdbc.queryForList("select " + group + " d, count(*) c from sys_file_check_item " +
-                        "where first_seen>=?" + scope + " group by " + group, args.toArray())
-                .forEach(row -> {
-                    String key = String.valueOf(row.get("d"));
-                    data.computeIfAbsent(key, k -> new long[]{0, 0})[0] = ((Number) row.get("c")).longValue();
-                });
-        jdbc.queryForList("select " + resolvedGroup + " d, count(*) c from sys_file_check_item " +
-                        "where resolved_time is not null and resolved_time>=?" + scope + " group by " + resolvedGroup, args.toArray())
-                .forEach(row -> {
-                    String key = String.valueOf(row.get("d"));
-                    data.computeIfAbsent(key, k -> new long[]{0, 0})[1] = ((Number) row.get("c")).longValue();
-                });
-        List<Map<String, Object>> result = new ArrayList<>();
-        data.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("date", entry.getKey());
-            item.put("missing", entry.getValue()[0]);
-            item.put("recovered", entry.getValue()[1]);
-            result.add(item);
-        });
-        return result;
+        return queryService.trend(days, companyId, hospitalId, granularity);
     }
 
     public Map<String, Object> recover(Long itemId, String fileUrl) {
@@ -253,48 +185,6 @@ public class FileCheckService {
         result.put("filePath", relative);
         result.put("status", "1");
         return result;
-    }
-
-    private void sendMissingEmails(List<Missing> missing) {
-        if (missing.isEmpty() || !mailNotificationService.isEnabled()) return;
-        byte[] attachment = exportService.excel(exportRows("0", null, null, null, null, null));
-        Map<String, List<Missing>> groups = missing.stream().collect(Collectors.groupingBy(m ->
-                (m.context().companyId() == null ? "-" : m.context().companyId()) + "|" +
-                        (m.context().hospitalId() == null ? "-" : m.context().hospitalId())));
-        boolean sent = false;
-        for (List<Missing> group : groups.values()) {
-            Missing first = group.get(0);
-            List<String> emails = recipientService.emails(first.context().companyId(), first.context().hospitalId());
-            if (emails.isEmpty()) continue;
-            sent = true;
-            String subject = "文件巡检发现 " + group.size() + " 个文件丢失";
-            mailNotificationService.sendHtml(emails, subject, htmlReport(group), attachment, "file-check.xlsx");
-        }
-        if (!sent) {
-            mailNotificationService.sendHtml(null, "文件巡检发现 " + missing.size() + " 个文件丢失",
-                    htmlReport(missing), attachment, "file-check.xlsx");
-        }
-    }
-
-    private String htmlReport(List<Missing> rows) {
-        StringBuilder html = new StringBuilder("<div style=\"font-family:Arial,sans-serif\">");
-        html.append("<h3 style=\"color:#c0392b\">文件巡检报告</h3>");
-        html.append("<p>共发现 <b>").append(rows.size()).append("</b> 个文件丢失，请登录系统管理-文件巡检处理。</p>");
-        html.append("<table border=\"1\" cellspacing=\"0\" cellpadding=\"6\" style=\"border-collapse:collapse;font-size:12px\">");
-        html.append("<tr><th>等级</th><th>表</th><th>记录</th><th>类型</th><th>路径</th></tr>");
-        for (Missing row : rows.stream().limit(30).toList()) {
-            html.append("<tr><td>").append(escape(row.severity()))
-                    .append("</td><td>").append(escape(row.ref().table()))
-                    .append("</td><td>").append(row.recordId())
-                    .append("</td><td>").append(escape(row.fileType()))
-                    .append("</td><td>").append(escape(row.path())).append("</td></tr>");
-        }
-        html.append("</table><p>完整明细见附件。</p></div>");
-        return html.toString();
-    }
-
-    private String escape(String value) {
-        return value == null ? "" : value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private ScanResult scanAll(Path root, long runId) throws Exception {

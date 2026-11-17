@@ -77,6 +77,11 @@ SET @company_user=LAST_INSERT_ID();
 INSERT INTO sys_user_role(user_id,role_id) VALUES(@company_user,213);
 
 INSERT INTO sys_user(username,password,nick_name,user_type,company_id,status,must_change_pwd,create_time)
+VALUES('e2e_superadmin','${hash}','E2E超级管理员','1',@company_id,'0',0,NOW());
+SET @super_user=LAST_INSERT_ID();
+INSERT INTO sys_user_role(user_id,role_id) VALUES(@super_user,1);
+
+INSERT INTO sys_user(username,password,nick_name,user_type,company_id,status,must_change_pwd,create_time)
 VALUES('e2e_engineer','${hash}','E2E工程师','1',@company_id,'0',0,NOW());
 SET @engineer_user=LAST_INSERT_ID();
 INSERT INTO sys_user_role(user_id,role_id) VALUES(@engineer_user,102);

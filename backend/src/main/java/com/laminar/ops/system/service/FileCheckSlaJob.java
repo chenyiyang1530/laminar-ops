@@ -102,17 +102,15 @@ public class FileCheckSlaJob {
     private int targetLevel(Map<String, Object> row) {
         Object value = row.get("sla_deadline");
         if (value == null) return 0;
-        long deadlineMillis;
-        if (value instanceof java.sql.Timestamp ts) {
-            deadlineMillis = ts.getTime();
-        } else if (value instanceof java.time.LocalDateTime ldt) {
-            deadlineMillis = ldt.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+        java.time.LocalDateTime deadline;
+        if (value instanceof java.time.LocalDateTime ldt) {
+            deadline = ldt;
+        } else if (value instanceof java.sql.Timestamp ts) {
+            deadline = ts.toLocalDateTime();
         } else {
-            deadlineMillis = Long.parseLong(String.valueOf(value));
+            return 0;
         }
-        long overdueHours = (System.currentTimeMillis() - deadlineMillis) / 3_600_000L;
-        if (overdueHours >= properties.getSlaLevel3Hours()) return 3;
-        if (overdueHours >= properties.getSlaLevel2Hours()) return 2;
-        return 1;
+        return FileCheckSlaPolicy.level(deadline, java.time.LocalDateTime.now(),
+                properties.getSlaLevel2Hours(), properties.getSlaLevel3Hours());
     }
 }
