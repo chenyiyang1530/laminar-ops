@@ -139,10 +139,20 @@ public class SystemService {
             where.append(" and u.user_type = ? ");
             args.add(userType);
         }
-        Long companyId = dataScope.companyId(AuthContext.require());
+        LoginUser actor = AuthContext.require();
+        Long companyId = dataScope.companyId(actor);
         if (companyId != null) {
             where.append(" and u.company_id = ? ");
             args.add(companyId);
+        } else if (actor.isHospitalUser()) {
+            Long hospitalId = actor.getHospitalId();
+            if (hospitalId == null) {
+                where.append(" and 1=0 ");
+            } else {
+                where.append(" and u.user_type = '2' and exists (select 1 from biz_hospital_user hu2 " +
+                        "where hu2.user_id=u.user_id and hu2.hospital_id=?) ");
+                args.add(hospitalId);
+            }
         } else if (notBlank(companyIdParam)) {
             where.append(" and u.company_id = ? ");
             args.add(companyIdParam);
@@ -207,9 +217,10 @@ public class SystemService {
             roleIds = roleIdsForAccountType(body.get("accountType"));
         }
         boolean hospitalRole = hasHospitalRole(roleIds);
-        Long currentCompany = dataScope.companyId(AuthContext.require());
+        LoginUser actor = AuthContext.require();
+        Long currentCompany = dataScope.companyId(actor);
         if (hospitalRole && currentCompany != null) {
-            throw BizException.forbidden("院方账号由平台管理员创建");
+            throw BizException.forbidden("院方账号由平台管理员或院方管理员创建");
         }
         Long hospitalId = longOf(body.get("hospitalId"));
         Long hospitalDepartmentId = longOf(body.get("hospitalDepartmentId"));
@@ -219,6 +230,7 @@ public class SystemService {
         if (hospitalRole && hasRoleKey(roleIds, "hospital_sub_admin") && hospitalDepartmentId == null) {
             throw BizException.badRequest("院方子管理员必须选择所属科室");
         }
+        if (hospitalRole) validateHospitalAccountActor(actor, roleIds, hospitalId, hospitalDepartmentId);
         if (hospitalDepartmentId != null) validateHospitalDepartment(hospitalId, hospitalDepartmentId);
         Long companyId = hospitalRole ? null : (currentCompany != null ? currentCompany : longOf(body.get("companyId")));
         if (companyId == null && !hospitalRole) throw BizException.badRequest("请选择所属公司");
@@ -281,6 +293,7 @@ public class SystemService {
         if (hospitalRole && hasRoleKey(roleIds, "hospital_sub_admin") && hospitalDepartmentId == null) {
             throw BizException.badRequest("院方子管理员必须选择所属科室");
         }
+        if (hospitalRole) validateHospitalAccountActor(AuthContext.require(), roleIds, hospitalId, hospitalDepartmentId);
         if (hospitalDepartmentId != null) validateHospitalDepartment(hospitalId, hospitalDepartmentId);
         if (hospitalRole && hospitalId == null) {
             throw BizException.badRequest("院方角色必须选择所属医院");
@@ -444,6 +457,42 @@ public class SystemService {
             }
         }
         return false;
+    }
+
+    private void validateHospitalAccountActor(LoginUser actor, Object roleIds, Long hospitalId, Long departmentId) {
+        if (actor.isSuperAdmin()) return;
+        if (!actor.getRoleKeys().contains("hospital_admin")) {
+            throw BizException.forbidden("院方账号由平台管理员或院方管理员创建");
+        }
+        List<String> requested = roleKeys(roleIds);
+        boolean allowed = !requested.isEmpty() && requested.stream()
+                .allMatch(key -> "hospital_sub_admin".equals(key) || "hospital_dept".equals(key));
+        if (!allowed) {
+            throw BizException.forbidden("院方管理员只能创建院方子管理员或院方科室用户");
+        }
+        Long actorHospital = actor.getHospitalId();
+        if (actorHospital == null) {
+            List<Long> ids = jdbc.queryForList(
+                    "select hospital_id from biz_hospital_user where user_id=?", Long.class, actor.getUserId());
+            actorHospital = ids.isEmpty() ? null : ids.get(0);
+        }
+        if (hospitalId == null || !hospitalId.equals(actorHospital)) {
+            throw BizException.forbidden("只能创建本院账号");
+        }
+        if (departmentId == null) {
+            throw BizException.badRequest("院方子管理员或科室用户必须选择所属科室");
+        }
+    }
+
+    private List<String> roleKeys(Object roleIds) {
+        List<String> keys = new ArrayList<>();
+        if (!(roleIds instanceof List<?> list)) return keys;
+        for (Object item : list) {
+            if (item == null) continue;
+            keys.addAll(jdbc.queryForList("select role_key from sys_role where role_id=?",
+                    String.class, Long.valueOf(String.valueOf(item))));
+        }
+        return keys;
     }
 
     private boolean hasRoleKey(Object roleIds, String roleKey) {

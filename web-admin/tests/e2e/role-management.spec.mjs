@@ -46,6 +46,52 @@ test('标准角色不可删除且角色管理截图', async ({ page, request }) 
   await expect(page.locator('.role-actions .el-select')).toContainText('不可分配')
 })
 
+test('院方管理员只能创建院方子管理员和科室用户', async ({ request }) => {
+  const suffix = Date.now().toString().slice(-6)
+  const username = `e2e_dept_${suffix}`
+  const nickName = `E2E科室用户${suffix}`
+  const hospitalLogin = await request.post('/api/auth/login', {
+    data: { username: 'e2e_hospital', password: data.password }
+  })
+  const hospitalHeaders = { Authorization: `Bearer ${(await hospitalLogin.json()).data.token}` }
+
+  const denied = await request.post('/api/system/user', {
+    headers: hospitalHeaders,
+    data: {
+      username: `e2e_admin_${suffix}`,
+      nickName: `E2E院方管理员${suffix}`,
+      accountType: 'hospital_admin',
+      hospitalId: data.hospitalId,
+      phone: '13800138002'
+    }
+  })
+  expect((await denied.json()).code).not.toBe(200)
+
+  const created = await request.post('/api/system/user', {
+    headers: hospitalHeaders,
+    data: {
+      username,
+      nickName,
+      accountType: 'hospital_sub_admin',
+      hospitalId: data.hospitalId,
+      hospitalDepartmentId: data.deptAId,
+      phone: '13800138003'
+    }
+  })
+  const createdBody = await created.json()
+  expect(createdBody.code, JSON.stringify(createdBody)).toBe(200)
+
+  const superLogin = await request.post('/api/auth/login', {
+    data: { companyCode: data.companyCode, username: 'e2e_superadmin', password: data.password }
+  })
+  const headers = { Authorization: `Bearer ${(await superLogin.json()).data.token}` }
+  const rows = await request.get(`/api/system/user/page?pageNum=1&pageSize=20&nickName=${encodeURIComponent(nickName)}`, { headers })
+  const record = ((await rows.json()).data.records || []).find((row) => row.username === username)
+  expect(record).toBeTruthy()
+  expect(record.roleNames).toContain('院方子管理员')
+  await request.delete(`/api/system/user/${record.userId}`, { headers })
+})
+
 test('公司管理员禁止创建院方账号，平台管理员可创建', async ({ page, request }) => {
   const suffix = Date.now().toString().slice(-6)
   const username = `e2e_auto_sub_${suffix}`

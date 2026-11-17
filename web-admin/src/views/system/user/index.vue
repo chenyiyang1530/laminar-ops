@@ -86,6 +86,14 @@
         show-icon
         class="hospital-account-tip"
       />
+      <el-alert
+        v-if="!store.isSuperAdmin && store.roles.includes('hospital_admin')"
+        title="院方管理员只能创建院方子管理员和院方科室用户，且必须选择本院科室。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="hospital-account-tip"
+      />
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-form-item label="账号类型">
           <el-radio-group v-model="accountType" :disabled="!!form.userId" class="account-type-group" @change="onAccountTypeChange">
@@ -128,18 +136,25 @@ const loading = ref(false)
 const saving = ref(false)
 const accountType = ref('company')
 const accountTypes = computed(() => {
-  const types = [
-    { value: 'company', label: '公司员工' },
-    { value: 'engineer', label: '工程师' }
-  ]
-  if (!store.companyId) {
-    types.push(
+  if (store.isSuperAdmin) {
+    return [
+      { value: 'company', label: '公司员工' },
+      { value: 'engineer', label: '工程师' },
       { value: 'hospital_admin', label: '院方管理员' },
       { value: 'hospital_sub_admin', label: '院方子管理员' },
       { value: 'hospital_dept', label: '院方科室用户' }
-    )
+    ]
   }
-  return types
+  if (store.roles.includes('hospital_admin')) {
+    return [
+      { value: 'hospital_sub_admin', label: '院方子管理员' },
+      { value: 'hospital_dept', label: '院方科室用户' }
+    ]
+  }
+  return [
+    { value: 'company', label: '公司员工' },
+    { value: 'engineer', label: '工程师' }
+  ]
 })
 const isHospitalType = computed(() => ['hospital_admin', 'hospital_sub_admin', 'hospital_dept'].includes(accountType.value))
 const hospitalDepartments = ref([])

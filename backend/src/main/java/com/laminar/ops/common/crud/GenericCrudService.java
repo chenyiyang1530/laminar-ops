@@ -486,6 +486,10 @@ public class GenericCrudService {
             if (user.getRegionId() == null) return List.of();
             applyRegionScope(where, args, "", user);
         }
+        if ("hospital".equals(def.getKey()) && user.isHospitalUser() && user.getHospitalId() != null) {
+            where.append(" and hospital_id = ? ");
+            args.add(user.getHospitalId());
+        }
         applyScopedResourceFilter(def, user, where, args, "");
         applyCompanyFilter(def, user, where, args, "");
         List<Long> allowed = scopeIdsForOptions(def, user);
