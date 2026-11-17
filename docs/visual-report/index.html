@@ -26,7 +26,7 @@ footer{padding:0 36px 30px;color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>
-<header><h1>Laminar Ops 截图基线报告</h1><p>共 59 张截图，按测试文件和页面分组。文件基于当前平台生成。</p></header>
+<header><h1>Laminar Ops 截图基线报告</h1><p>共 60 张截图，按测试文件和页面分组。文件基于当前平台生成。</p></header>
 <main>
   <div class="filters">
     <label>平台
@@ -75,13 +75,19 @@ footer{padding:0 36px 30px;color:var(--muted);font-size:12px}
     </div>
   </section>
   <section>
+    <h2>role-management.spec.mjs <small>1 张</small> <span class="status passed">通过</span></h2>
+    <div class="grid">
+      <figure data-platform="windows" data-date="2026-11-17"><img src="images/role-management.spec.mjs/role-management-win32.png" loading="lazy"><figcaption>role-management</figcaption></figure>
+    </div>
+  </section>
+  <section>
     <h2>visual.spec.mjs <small>1 张</small> <span class="status passed">通过</span></h2>
     <div class="grid">
       <figure data-platform="windows" data-date="2026-11-17"><img src="images/visual.spec.mjs/login-page-win32.png" loading="lazy"><figcaption>login-page</figcaption></figure>
     </div>
   </section>
 </main>
-<footer>生成时间：2026-11-17T16:56:03.637Z · 来源：web-admin/tests/e2e/__screenshots__</footer>
+<footer>生成时间：2026-11-17T17:02:15.656Z · 来源：web-admin/tests/e2e/__screenshots__</footer>
 <script>
 const platform = document.getElementById('platformFilter');
 const date = document.getElementById('dateFilter');
@@ -101,7 +107,7 @@ function apply() {
     const shown = section.querySelectorAll('figure:not(.hide)').length;
     section.style.display = shown ? '' : 'none';
   }
-  visible.textContent = '显示 ' + count + ' / 59 张';
+  visible.textContent = '显示 ' + count + ' / 60 张';
   const url = new URL(location.href);
   if (platform.value) url.searchParams.set('platform', platform.value); else url.searchParams.delete('platform');
   if (date.value) url.searchParams.set('date', date.value); else url.searchParams.delete('date');

@@ -207,6 +207,10 @@ public class SystemService {
             roleIds = roleIdsForAccountType(body.get("accountType"));
         }
         boolean hospitalRole = hasHospitalRole(roleIds);
+        Long currentCompany = dataScope.companyId(AuthContext.require());
+        if (hospitalRole && currentCompany != null) {
+            throw BizException.forbidden("院方账号由平台管理员创建");
+        }
         Long hospitalId = longOf(body.get("hospitalId"));
         Long hospitalDepartmentId = longOf(body.get("hospitalDepartmentId"));
         if (hospitalRole && hospitalId == null) {
@@ -216,7 +220,6 @@ public class SystemService {
             throw BizException.badRequest("院方子管理员必须选择所属科室");
         }
         if (hospitalDepartmentId != null) validateHospitalDepartment(hospitalId, hospitalDepartmentId);
-        Long currentCompany = dataScope.companyId(AuthContext.require());
         Long companyId = hospitalRole ? null : (currentCompany != null ? currentCompany : longOf(body.get("companyId")));
         if (companyId == null && !hospitalRole) throw BizException.badRequest("请选择所属公司");
         if (hospitalId != null) validateHospitalCompany(hospitalId, companyId);
@@ -266,6 +269,9 @@ public class SystemService {
         if (companyId == null && targetCompany != null) companyId = ((Number) targetCompany).longValue();
         Object roleIds = body.get("roleIds");
         boolean hospitalRole = hasHospitalRole(roleIds);
+        if (hospitalRole && currentCompany != null) {
+            throw BizException.forbidden("院方账号由平台管理员创建");
+        }
         Long hospitalId = body.containsKey("hospitalId") ? longOf(body.get("hospitalId"))
                 : jdbc.queryForList("select hospital_id from biz_hospital_user where user_id=?", Long.class, id)
                 .stream().findFirst().orElse(null);
@@ -533,9 +539,38 @@ public class SystemService {
     private void saveRoles(Long userId, Object roleIds) {
         if (roleIds instanceof List<?> list) {
             for (Object r : list) {
-                jdbc.update("insert ignore into sys_user_role(user_id,role_id) values(?,?)", userId, ((Number) r).longValue());
+                Long roleId = ((Number) r).longValue();
+                jdbc.update("insert ignore into sys_user_role(user_id,role_id) values(?,?)", userId, roleId);
+                logRoleAssign(roleId, userId, "assign", "分配角色");
             }
         }
+    }
+
+    public List<Map<String, Object>> roleAssignLogs(Long roleId) {
+        LoginUser user = AuthContext.require();
+        Long companyId = dataScope.companyId(user);
+        if (companyId != null) {
+            Long owner = roleCompany(roleId);
+            if (owner == null || !companyId.equals(owner)) {
+                throw BizException.forbidden("无权查看该角色分配记录");
+            }
+        }
+        return jdbc.queryForList(
+                "select l.log_id as `logId`, l.role_id as `roleId`, l.user_id as `userId`, l.action, " +
+                        "l.operator_name as `operatorName`, l.detail, date_format(l.create_time,'%Y-%m-%d %H:%i:%s') as `createTime`, " +
+                        "r.role_name as `roleName`, u.nick_name as `userName` " +
+                        "from sys_role_assign_log l left join sys_role r on r.role_id=l.role_id " +
+                        "left join sys_user u on u.user_id=l.user_id where l.role_id=? order by l.log_id desc limit 200",
+                roleId);
+    }
+
+    private void logRoleAssign(Long roleId, Long userId, String action, String detail) {
+        LoginUser user = AuthContext.require();
+        Long operatorId = user == null ? null : user.getUserId();
+        String operatorName = user == null ? "system" : user.getNickName();
+        jdbc.update("insert into sys_role_assign_log(role_id,user_id,action,operator_id,operator_name,detail) " +
+                        "values(?,?,?,?,?,?)",
+                roleId, userId, action, operatorId, operatorName, detail);
     }
 
     private void applyRoleDefaultDept(Long userId, Long companyId) {
@@ -587,7 +622,11 @@ public class SystemService {
                         "values(?,'custom',?,?,?,?,'0',?,now(),?)",
                 companyId, str(body.get("roleName")), roleKey, body.getOrDefault("sort", 0),
                 str(body.getOrDefault("dataScope", "self")), str(body.get("remark")),
-                str(body.getOrDefault("assignable", "1")));
+                companyId == null ? str(body.getOrDefault("assignable", "1")) : "1");
+        Long createdId = jdbc.queryForObject(
+                "select role_id from sys_role where role_key=? and company_id <=> ? order by role_id desc limit 1",
+                Long.class, roleKey, companyId);
+        if (createdId != null) logRoleAssign(createdId, null, "create", "创建角色");
     }
 
     public void updateRole(Map<String, Object> body) {
@@ -609,7 +648,8 @@ public class SystemService {
         jdbc.update("update sys_role set role_name=?,role_key=?,sort=?,data_scope=?,status=?,remark=?,assignable=? where role_id=?",
                 str(body.get("roleName")), roleKey, body.getOrDefault("sort", 0),
                 str(body.getOrDefault("dataScope", "self")), str(body.getOrDefault("status", "0")),
-                str(body.get("remark")), str(body.getOrDefault("assignable", "1")), roleId);
+                str(body.get("remark")), companyId == null ? str(body.getOrDefault("assignable", "1")) : currentAssignable(roleId), roleId);
+        logRoleAssign(roleId, null, "update", "修改角色");
     }
 
     public void deleteRole(Long id) {
@@ -621,6 +661,7 @@ public class SystemService {
         }
         String roleType = jdbc.queryForObject("select role_type from sys_role where role_id=?", String.class, id);
         if ("standard".equals(roleType)) throw BizException.badRequest("标准角色不可删除");
+        logRoleAssign(id, null, "delete", "删除角色");
         jdbc.update("delete from sys_role_menu where role_id=?", id);
         jdbc.update("delete from sys_user_role where role_id=?", id);
         jdbc.update("delete from sys_role where role_id=?", id);
@@ -664,8 +705,12 @@ public class SystemService {
         }
     }
 
-    private Long roleCompany(Long roleId) {
-        List<Object> rows = jdbc.queryForList("select company_id from sys_role where role_id=?", Object.class, roleId);
+    private String currentAssignable(Long roleId) {
+        String value = jdbc.queryForObject("select assignable from sys_role where role_id=?", String.class, roleId);
+        return value == null ? "1" : value;
+    }
+
+    private Long roleCompany(Long roleId) {        List<Object> rows = jdbc.queryForList("select company_id from sys_role where role_id=?", Object.class, roleId);
         if (rows.isEmpty() || rows.get(0) == null) return null;
         return ((Number) rows.get(0)).longValue();
     }
@@ -1067,6 +1112,7 @@ public class SystemService {
         return o == null ? 0 : ((Number) o).intValue();
     }
 }
+
 
 
 

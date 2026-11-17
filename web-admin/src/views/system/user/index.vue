@@ -120,13 +120,18 @@ const loading = ref(false)
 const saving = ref(false)
 const accountType = ref('company')
 const accountTypes = computed(() => {
-  return [
+  const types = [
     { value: 'company', label: '公司员工' },
-    { value: 'engineer', label: '工程师' },
-    { value: 'hospital_admin', label: '院方管理员' },
-    { value: 'hospital_sub_admin', label: '院方子管理员' },
-    { value: 'hospital_dept', label: '院方科室用户' }
+    { value: 'engineer', label: '工程师' }
   ]
+  if (!store.companyId) {
+    types.push(
+      { value: 'hospital_admin', label: '院方管理员' },
+      { value: 'hospital_sub_admin', label: '院方子管理员' },
+      { value: 'hospital_dept', label: '院方科室用户' }
+    )
+  }
+  return types
 })
 const isHospitalType = computed(() => ['hospital_admin', 'hospital_sub_admin', 'hospital_dept'].includes(accountType.value))
 const hospitalDepartments = ref([])

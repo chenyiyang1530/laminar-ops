@@ -136,6 +136,12 @@ public class SystemController {
         return Result.ok(systemService.roleMenuIds(id));
     }
 
+    @GetMapping("/role/{id}/assignmentLogs")
+    @Perm("system:role:list")
+    public Result<List<Map<String, Object>>> roleAssignLogs(@PathVariable Long id) {
+        return Result.ok(systemService.roleAssignLogs(id));
+    }
+
     @PutMapping("/role/{id}/menus")
     @Perm("system:role:edit")
     public Result<Void> assignMenus(@PathVariable Long id, @RequestBody List<Long> menuIds) {

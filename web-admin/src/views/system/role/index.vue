@@ -10,9 +10,16 @@
       />
       <div class="page-title">
         <div><h2>角色管理</h2><div class="sub">角色权限、数据范围与菜单授权</div></div>
-        <el-button v-if="has('add')" type="primary" :icon="Plus" @click="openAdd">新增角色</el-button>
+        <div class="role-actions">
+          <el-select v-model="assignableFilter" style="width: 140px" placeholder="可分配">
+            <el-option label="全部角色" value="" />
+            <el-option label="可分配" value="1" />
+            <el-option label="不可分配" value="0" />
+          </el-select>
+          <el-button v-if="has('add')" type="primary" :icon="Plus" @click="openAdd">新增角色</el-button>
+        </div>
       </div>
-      <el-table :data="records" stripe>
+      <el-table :data="filteredRecords" stripe>
         <el-table-column type="index" label="序号" width="62" align="center" />
         <el-table-column prop="roleName" label="角色名称" min-width="140" />
         <el-table-column prop="roleKey" label="权限字符" min-width="150" />
@@ -39,10 +46,11 @@
         <el-table-column label="状态" width="90">
         <template #default="{ row }"><el-tag :type="row.status === '0' ? 'success' : 'info'" size="small">{{ row.status === '0' ? '正常' : '停用' }}</el-tag></template></el-table-column>
         <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip />
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" v-if="has('edit') && canEditRow(row)" @click="openEdit(row)">编辑</el-button>
             <el-button link type="primary" v-if="has('edit') && canEditRow(row) && row.roleId !== 1" @click="openMenus(row)">菜单权限</el-button>
+            <el-button link type="primary" @click="openAssignLogs(row)">分配记录</el-button>
             <el-button link type="danger" v-if="has('remove') && canEditRow(row) && row.roleId !== 1 && row.roleType !== 'standard'" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -52,14 +60,17 @@
     <el-dialog v-model="dialog" :title="form.roleId ? '编辑角色' : '新增角色'" width="520px">
       <el-form :model="form" label-width="86px">
         <el-form-item label="角色名称" required><el-input v-model="form.roleName" /></el-form-item>
-        <el-form-item label="权限字符" required><el-input v-model="form.roleKey" :disabled="form.roleType === 'standard'" placeholder="如 hospital_admin" /></el-form-item>
+        <el-form-item label="权限字符" required>
+          <el-input v-model="form.roleKey" :disabled="form.roleType === 'standard'" placeholder="如 hospital_admin" />
+          <div v-if="form.roleType === 'standard'" class="standard-hint">平台标准角色的权限字符不可修改</div>
+        </el-form-item>
         <el-form-item label="排序"><el-input-number v-model="form.sort" :min="0" /></el-form-item>
         <el-form-item label="数据范围">
           <el-select v-model="form.dataScope" style="width: 100%">
             <el-option label="全部数据" value="all" /><el-option label="本区域" value="region" /><el-option label="本医院" value="hospital" /><el-option label="仅本人" value="self" />
           </el-select>
         </el-form-item>
-        <el-form-item label="可分配">
+        <el-form-item v-if="store.isSuperAdmin" label="可分配">
           <el-switch v-model="form.assignable" active-value="1" inactive-value="0" />
         </el-form-item>
         <el-form-item label="状态"><el-radio-group v-model="form.status"><el-radio value="0">正常</el-radio><el-radio value="1">停用</el-radio></el-radio-group></el-form-item>
@@ -88,11 +99,23 @@
       />
       <div style="margin-top: 16px"><el-button type="primary" @click="saveMenus">保存授权</el-button></div>
     </el-drawer>
+
+    <el-drawer v-model="assignDrawer" size="520px" :title="'分配记录 · ' + (assignRole?.roleName || '')">
+      <el-table :data="assignLogs" stripe>
+        <el-table-column prop="createTime" label="时间" width="160" />
+        <el-table-column prop="action" label="动作" width="90">
+          <template #default="{ row }">{{ actionText(row.action) }}</template>
+        </el-table-column>
+        <el-table-column prop="userName" label="用户" />
+        <el-table-column prop="operatorName" label="操作人" width="110" />
+        <el-table-column prop="detail" label="说明" show-overflow-tooltip />
+      </el-table>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import request from '@/utils/request'
@@ -102,6 +125,13 @@ const store = useUserStore()
 const has = (a) => store.hasPerm('system:role:' + a)
 const canEditRow = (row) => store.isSuperAdmin || !!row.companyId
 const records = ref([])
+const assignableFilter = ref('')
+const assignDrawer = ref(false)
+const assignRole = ref(null)
+const assignLogs = ref([])
+const filteredRecords = computed(() => assignableFilter.value
+  ? records.value.filter((row) => row.assignable === assignableFilter.value)
+  : records.value)
 const dialog = ref(false)
 const form = reactive({})
 const current = ref(null)
@@ -109,6 +139,7 @@ const menuDrawer = ref(false)
 const menus = ref([])
 const treeRef = ref()
 const scopeText = (s) => ({ all: '全部', region: '本区域', hospital: '本医院', self: '仅本人' }[s] || s)
+const actionText = (a) => ({ assign: '分配', create: '创建', update: '修改', delete: '删除' }[a] || a)
 
 function buildTree(list) {
   const map = {}, roots = []
@@ -203,6 +234,12 @@ async function openMenus(row) {
   menuDrawer.value = true
   setTimeout(() => treeRef.value?.setCheckedKeys(checked), 50)
 }
+
+async function openAssignLogs(row) {
+  assignRole.value = row
+  assignDrawer.value = true
+  assignLogs.value = (await request.get(`/system/role/${row.roleId}/assignmentLogs`)).data
+}
 async function saveMenus() {
   const keys = treeRef.value.getCheckedKeys().concat(treeRef.value.getHalfCheckedKeys())
   await request.put(`/system/role/${current.value.roleId}/menus`, keys)
@@ -213,6 +250,8 @@ onMounted(load)
 
 <style scoped>
 .role-tip { margin-bottom: 12px; }
+.role-actions { display: flex; align-items: center; gap: 10px; }
+.standard-hint { width: 100%; margin-top: 4px; color: #909399; font-size: 11px; line-height: 1.4; }
 .perm-presets { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .perm-label { color: #606266; font-size: 13px; }
 .perm-hint { color: #909399; font-size: 12px; line-height: 1.5; margin-bottom: 10px; }

@@ -14,7 +14,7 @@ async function login(page, username) {
   await page.waitForURL(/\/app\/dashboard/, { timeout: 20_000 })
 }
 
-test('标准角色不可删除', async ({ page, request }) => {
+test('标准角色不可删除且角色管理截图', async ({ page, request }) => {
   await login(page, 'e2e_superadmin')
   await page.goto('/app/staff/people?tab=role')
   const row = page.locator('.el-table__row').filter({ hasText: '院方子管理员' }).first()
@@ -29,22 +29,26 @@ test('标准角色不可删除', async ({ page, request }) => {
   expect((await deleted.json()).code).not.toBe(200)
   const roles = await request.get('/api/system/role/list', { headers })
   expect((await roles.json()).data.some((item) => item.roleId === 202)).toBeTruthy()
+
+  await expect(page).toHaveScreenshot('role-management.png', {
+    fullPage: false,
+    animations: 'disabled',
+    caret: 'hide',
+    maxDiffPixelRatio: 0.02,
+    maskColor: '#f5f7fa',
+    mask: [page.locator('.el-alert')]
+  })
 })
 
-test('公司管理员创建院方子管理员账号自动带出角色', async ({ request }) => {
+test('公司管理员禁止创建院方账号，平台管理员可创建', async ({ request }) => {
   const suffix = Date.now().toString().slice(-6)
   const username = `e2e_auto_sub_${suffix}`
   const nickName = `E2E自动子管理${suffix}`
-  const loginRes = await request.post('/api/auth/login', {
+  const companyLogin = await request.post('/api/auth/login', {
     data: { companyCode: data.companyCode, username: 'e2e_company', password: data.password }
   })
-  const companyToken = (await loginRes.json()).data.token
-  const companyHeaders = { Authorization: `Bearer ${companyToken}` }
-
-  const options = await request.get('/api/system/user/roleOptions', { headers: companyHeaders })
-  expect((await options.json()).data.some((role) => role.roleId === 202)).toBeTruthy()
-
-  const created = await request.post('/api/system/user', {
+  const companyHeaders = { Authorization: `Bearer ${(await companyLogin.json()).data.token}` }
+  const denied = await request.post('/api/system/user', {
     headers: companyHeaders,
     data: {
       username,
@@ -55,16 +59,30 @@ test('公司管理员创建院方子管理员账号自动带出角色', async ({
       phone: '13800138000'
     }
   })
-  const createdBody = await created.json()
-  expect(createdBody.code, JSON.stringify(createdBody)).toBe(200)
+  expect((await denied.json()).code).not.toBe(200)
 
   const superLogin = await request.post('/api/auth/login', {
     data: { companyCode: data.companyCode, username: 'e2e_superadmin', password: data.password }
   })
   const headers = { Authorization: `Bearer ${(await superLogin.json()).data.token}` }
+  const created = await request.post('/api/system/user', {
+    headers,
+    data: {
+      username,
+      nickName,
+      accountType: 'hospital_sub_admin',
+      hospitalId: data.hospitalId,
+      hospitalDepartmentId: data.deptAId,
+      phone: '13800138000'
+    }
+  })
+  expect((await created.json()).code).toBe(200)
+
   const rows = await request.get(`/api/system/user/page?pageNum=1&pageSize=20&nickName=${encodeURIComponent(nickName)}`, { headers })
   const record = ((await rows.json()).data.records || []).find((row) => row.username === username)
-  expect(record, '创建的院方子管理员账号').toBeTruthy()
+  expect(record, '平台管理员创建的院方子管理员账号').toBeTruthy()
   expect(record.roleNames).toContain('院方子管理员')
+  const logs = await request.get('/api/system/role/202/assignmentLogs', { headers })
+  expect((await logs.json()).data.some((log) => log.action === 'assign' && log.userName === nickName)).toBeTruthy()
   await request.delete(`/api/system/user/${record.userId}`, { headers })
 })
