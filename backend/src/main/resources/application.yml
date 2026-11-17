@@ -107,7 +107,7 @@ laminar:
     sign-secret: ${FILE_SIGN_SECRET:}
     sign-ttl-seconds: ${FILE_SIGN_TTL_SECONDS:1800}
   upload:
-    path: ${UPLOAD_DIR:./upload}
+    path: ${UPLOAD_DIR:}
     virus-scan-enabled: ${UPLOAD_VIRUS_SCAN:false}
     clamav-command: ${CLAMAV_COMMAND:}
     cleanup-enabled: ${UPLOAD_CLEANUP_ENABLED:false}

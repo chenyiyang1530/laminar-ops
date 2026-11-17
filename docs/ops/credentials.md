@@ -268,3 +268,15 @@ UPLOAD_DIR=D:/ideaWork/laminar-ops/backend/upload
 D:\ideaWork\laminar-ops\backend\upload
 ```
 
+
+## 上传目录强制校验
+
+`UPLOAD_DIR` 必须配置为绝对路径，并且目录必须存在、可写。
+缺少配置、相对路径、目录不存在或不可写时，后端会启动失败。
+
+本地 `.secrets.local`：
+
+```text
+UPLOAD_DIR=D:/ideaWork/laminar-ops/backend/upload
+```
+

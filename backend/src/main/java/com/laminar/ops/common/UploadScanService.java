@@ -25,7 +25,7 @@ public class UploadScanService {
     @Value("${laminar.upload.clamav-command:}")
     private String command;
 
-    @Value("${laminar.upload.path:./upload}")
+    @Value("${laminar.upload.path:}")
     private String uploadPath;
 
     public void scan(MultipartFile file) {
@@ -73,3 +73,4 @@ public class UploadScanService {
         }
     }
 }
+

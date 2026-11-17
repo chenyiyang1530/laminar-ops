@@ -106,7 +106,9 @@ jobs:
           FILE_SIGN_SECRET: github-actions-file-secret-please-change-2026
           MONITOR_TOKEN: github-actions-monitor-token
           VERIFICATION_DEV_MODE: 'false'
+          UPLOAD_DIR: ${{ github.workspace }}/upload
         run: |
+          mkdir -p upload
           nohup java -jar target/laminar-ops-1.0.0.jar > app.log 2>&1 &
           echo $! > app.pid
           for i in $(seq 1 60); do
@@ -196,7 +198,9 @@ jobs:
           FILE_SIGN_SECRET: github-actions-file-secret-please-change-2026
           MONITOR_TOKEN: github-actions-monitor-token
           VERIFICATION_DEV_MODE: 'false'
+          UPLOAD_DIR: ${{ github.workspace }}/upload
         run: |
+          mkdir -p upload
           nohup java -jar target/laminar-ops-1.0.0.jar > app.log 2>&1 &
           echo $! > app.pid
           for i in $(seq 1 60); do
@@ -229,3 +233,4 @@ jobs:
           path: |
             web-admin/playwright-report
             web-admin/test-results
+

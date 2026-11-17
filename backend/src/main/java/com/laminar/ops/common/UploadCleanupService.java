@@ -31,7 +31,7 @@ public class UploadCleanupService {
 
     private final JdbcTemplate jdbc;
 
-    @Value("${laminar.upload.path:./upload}")
+    @Value("${laminar.upload.path:}")
     private String uploadPath;
 
     @Value("${laminar.upload.cleanup-enabled:false}")
@@ -108,3 +108,4 @@ public class UploadCleanupService {
         }
     }
 }
+

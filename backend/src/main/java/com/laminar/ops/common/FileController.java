@@ -55,7 +55,7 @@ public class FileController {
     private final JdbcTemplate jdbc;
     private final Tika tika = new Tika();
 
-    @Value("${laminar.upload.path:./upload}")
+    @Value("${laminar.upload.path:}")
     private String uploadPath;
 
     @GetMapping("/file/sign")
@@ -219,3 +219,4 @@ public class FileController {
         return dot < 0 ? "" : name.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 }
+

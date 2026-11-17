@@ -30,7 +30,7 @@ public class PublicVersionController {
     private final VersionService versionService;
     private final SysConfigService sysConfig;
 
-    @Value("${laminar.upload.path:./upload}")
+    @Value("${laminar.upload.path:}")
     private String uploadPath;
 
     @GetMapping("/version")
@@ -72,3 +72,4 @@ public class PublicVersionController {
                 .body(resource);
     }
 }
+
