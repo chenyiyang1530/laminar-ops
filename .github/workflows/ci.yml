@@ -222,6 +222,16 @@ jobs:
           MYSQL_BIN: mysql
           MYSQL_ROOT_PASSWORD: root
         run: node e2e/cleanup.mjs || true
+      - name: Generate screenshot HTML report
+        if: always()
+        run: node ../tools/visual-report.mjs
+        working-directory: web-admin
+      - name: Upload screenshot HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-report
+          path: docs/visual-report
       - name: Show backend log on failure
         if: failure()
         run: tail -200 backend/app.log

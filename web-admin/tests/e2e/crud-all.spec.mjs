@@ -10,7 +10,10 @@ const RESOURCES = [
   'inspectionPlan', 'maintenancePlan', 'optimization', 'post', 'dictType', 'dictData'
 ]
 
-test('24 个 CRUD 资源新增、编辑、删除', async ({ request }) => {
+test('24 个 CRUD 资源新增、编辑、删除', async ({ request }, testInfo) => {
+  const failureLog = path.resolve(process.cwd(), 'test-results/crud-failures.log')
+  fs.mkdirSync(path.dirname(failureLog), { recursive: true })
+  fs.rmSync(failureLog, { force: true })
   const login = await request.post('/api/auth/login', {
     data: { companyCode: data.companyCode, username: 'e2e_superadmin', password: data.password }
   })
@@ -108,8 +111,12 @@ test('24 个 CRUD 资源新增、编辑、删除', async ({ request }) => {
       }
     } catch (e) {
       failures.push(`${resource}: ${e.message}`)
+      fs.appendFileSync(failureLog, `[${resource}] ${e.message}\n`)
     }
   }
 
+  if (failures.length) {
+    await testInfo.attach('crud-failures', { path: failureLog, contentType: 'text/plain' })
+  }
   expect(failures, `CRUD 失败：\n${failures.join('\n')}`).toHaveLength(0)
 })

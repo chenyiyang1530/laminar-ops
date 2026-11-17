@@ -32,6 +32,10 @@ test('23 个管理页面移动端截图基线', async ({ page }) => {
   for (const route of routes) {
     await page.goto(`/app${route}`)
     await page.waitForTimeout(600)
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+    if (overflow > 2) {
+      throw new Error(`页面横向溢出 ${overflow}px：${route}`)
+    }
     const slug = route.replace(/^\//, '').replace(/[^a-zA-Z0-9]+/g, '-')
     await expect(page).toHaveScreenshot(`management-mobile-${slug}.png`, {
       fullPage: false,

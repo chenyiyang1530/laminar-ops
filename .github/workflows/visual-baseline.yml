@@ -84,7 +84,7 @@ jobs:
           MYSQL_BIN: mysql
           MYSQL_ROOT_PASSWORD: root
           E2E_BROWSER_CHANNEL: chromium
-        run: npx playwright test tests/e2e/visual.spec.mjs tests/e2e/file-check-visual.spec.mjs tests/e2e/file-check-mobile-visual.spec.mjs tests/e2e/all-management.spec.mjs tests/e2e/all-management-mobile.spec.mjs --update-snapshots
+        run: npx playwright test tests/e2e/visual.spec.mjs tests/e2e/file-check-visual.spec.mjs tests/e2e/file-check-mobile-visual.spec.mjs tests/e2e/all-management.spec.mjs tests/e2e/all-management-mobile.spec.mjs tests/e2e/real-table.spec.mjs --update-snapshots
         working-directory: web-admin
       - name: Commit Linux snapshots
         run: |

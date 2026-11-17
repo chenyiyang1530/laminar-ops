@@ -471,6 +471,15 @@ onBeforeUnmount(() => {
 }
 
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+@media (max-width: 768px) {
+  .layout { width: 100vw; height: 100dvh; }
+  .sidebar { width: 68px; }
+  .main { width: calc(100vw - 68px); max-width: calc(100vw - 68px); overflow-x: hidden; }
+  .header { padding: 0 10px; gap: 8px; }
+  .crumb { overflow: hidden; white-space: nowrap; }
+  .header-right { gap: 10px; }
+  .uname { display: none; }
+}
 .header {
   height: 58px; background: #fff; border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 14px; padding: 0 20px; flex-shrink: 0;
