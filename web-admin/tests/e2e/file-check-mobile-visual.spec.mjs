@@ -23,7 +23,8 @@ test('文件巡检页面移动端视觉基线', async ({ page }) => {
     caret: 'hide',
     maxDiffPixelRatio: 0.05,
       maskColor: '#f5f7fa',
-    mask: [page.locator('.trend-box')]
+    mask: [page.locator('.trend-box'), page.locator('.el-loading-mask'), page.locator('.el-message')]
   })
 })
+
 

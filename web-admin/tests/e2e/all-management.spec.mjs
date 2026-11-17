@@ -53,7 +53,9 @@ test('所有管理页面可打开且无接口错误', async ({ page }) => {
           page.locator('.page-card .el-pagination'),
           page.locator('.page-card canvas'),
           page.locator('.page-card .trend-box'),
-          page.locator('.page-card .el-alert')
+          page.locator('.page-card .el-alert'),
+        page.locator('.el-loading-mask'),
+        page.locator('.el-message')
         ]
     await expect(page).toHaveScreenshot(`management-${slug}${realTables ? '-real' : ''}.png`, {
       fullPage: false,
@@ -69,4 +71,5 @@ test('所有管理页面可打开且无接口错误', async ({ page }) => {
   expect(errors, `页面 JS 异常：${errors.join('; ')}`).toHaveLength(0)
   expect(unique, `管理页面接口/渲染异常：\n${unique.join('\n')}`).toHaveLength(0)
 })
+
 

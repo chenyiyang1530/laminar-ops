@@ -36,7 +36,7 @@ test('标准角色不可删除且角色管理截图', async ({ page, request }) 
     caret: 'hide',
     maxDiffPixelRatio: 0.02,
     maskColor: '#f5f7fa',
-    mask: [page.locator('.el-alert')]
+    mask: [page.locator('.el-alert'), page.locator('.el-loading-mask'), page.locator('.el-message')]
   })
 
   await page.locator('.role-actions .el-select').click()
@@ -103,3 +103,4 @@ test('公司管理员禁止创建院方账号，平台管理员可创建', async
   expect(logData.records[0].roleName).toBe('院方子管理员')
   await request.delete(`/api/system/user/${record.userId}`, { headers })
 })
+

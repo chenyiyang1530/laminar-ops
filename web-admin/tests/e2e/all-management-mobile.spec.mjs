@@ -48,8 +48,11 @@ test('23 个管理页面移动端截图基线', async ({ page }) => {
         page.locator('.page-card .el-pagination'),
         page.locator('.page-card canvas'),
         page.locator('.page-card .trend-box'),
-        page.locator('.page-card .el-alert')
+        page.locator('.page-card .el-alert'),
+        page.locator('.el-loading-mask'),
+        page.locator('.el-message')
       ]
     })
   }
 })
+

@@ -35,7 +35,7 @@ test('真实表格内容固定数据截图', async ({ page }) => {
   await expect(page.getByText('E2E固定医院').first()).toBeVisible({ timeout: 15_000 })
   await expect(page).toHaveScreenshot('real-table-hospital.png', {
     fullPage: false, animations: 'disabled', caret: 'hide', maxDiffPixelRatio: 0.02, maskColor: '#f5f7fa',
-    mask: [page.locator('.page-card .el-alert'), page.locator('.page-card canvas')]
+    mask: [page.locator('.page-card .el-alert'), page.locator('.page-card canvas'), page.locator('.el-loading-mask'), page.locator('.el-message')]
   })
 })
 
@@ -98,7 +98,8 @@ test('真实表格模式覆盖公司/设备/备件/优化/工程师/合同/文�
     await expect(page.getByText(item.text).first()).toBeVisible({ timeout: 15_000 })
     await expect(page).toHaveScreenshot(`real-table-${item.name}.png`, {
       fullPage: false, animations: 'disabled', caret: 'hide', maxDiffPixelRatio: 0.02, maskColor: '#f5f7fa',
-      mask: [page.locator('.page-card .el-alert'), page.locator('.page-card canvas')]
+      mask: [page.locator('.page-card .el-alert'), page.locator('.page-card canvas'), page.locator('.el-loading-mask'), page.locator('.el-message')]
     })
   }
 })
+

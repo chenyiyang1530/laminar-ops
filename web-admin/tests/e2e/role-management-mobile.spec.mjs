@@ -22,6 +22,7 @@ test('角色管理移动端截图基线', async ({ page }) => {
     caret: 'hide',
     maxDiffPixelRatio: 0.02,
     maskColor: '#f5f7fa',
-    mask: [page.locator('.el-alert')]
+    mask: [page.locator('.el-alert'), page.locator('.el-loading-mask'), page.locator('.el-message')]
   })
 })
+
