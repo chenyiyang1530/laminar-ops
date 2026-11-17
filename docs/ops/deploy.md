@@ -13,12 +13,35 @@
 
 ```text
 备份当前 jar/dist
+检测旧 Redis 3 服务
+应用已使用非 6379 端口且新 Redis 端口监听时，停止并禁用旧 Redis 3
 停止 8080 进程
 复制新版本
 启动后端
 检查 /actuator/health
 失败时恢复上一版本并重启
 ```
+
+## 旧 Redis 3 自动停用
+
+条件：
+
+```text
+REDIS_PORT 不是 6379
+127.0.0.1:REDIS_PORT 正在监听
+Windows 服务 Redis 存在
+```
+
+满足时执行：
+
+```text
+Stop-Service Redis
+Set-Service Redis -StartupType Disabled
+sc.exe config Redis start= disabled
+```
+
+需要管理员权限；非管理员会输出警告但继续部署。
+
 
 ## Linux 发布目录
 

@@ -50,6 +50,37 @@ function Copy-Dist($source, $target) {
   Copy-Item $source $target -Recurse -Force
 }
 
+function Disable-LegacyRedis {
+  $appRedisPort = if ($env:REDIS_PORT) { [int]$env:REDIS_PORT } else { 6379 }
+  if ($appRedisPort -eq 6379) {
+    Write-Host "[deploy] 应用配置使用 6379，跳过禁用旧 Redis 3" -ForegroundColor Yellow
+    return
+  }
+  $redis8 = Get-Service -Name Redis8 -ErrorAction SilentlyContinue
+  $appRedisListening = Test-NetConnection -ComputerName 127.0.0.1 -Port $appRedisPort -InformationLevel Quiet -WarningAction SilentlyContinue
+  if (-not $appRedisListening) {
+    Write-Host "[deploy] Redis $appRedisPort 未监听，跳过禁用旧 Redis 3" -ForegroundColor Yellow
+    return
+  }
+  $legacy = Get-Service -Name Redis -ErrorAction SilentlyContinue
+  if (-not $legacy) {
+    Write-Host "[deploy] 未发现旧 Redis 3 服务"
+    return
+  }
+  try {
+    Write-Host "[deploy] 检测到旧 Redis 3，应用已使用 Redis $appRedisPort，正在停止并禁用旧服务..."
+    Stop-Service -Name Redis -Force
+    Set-Service -Name Redis -StartupType Disabled
+    sc.exe config Redis start= disabled | Out-Null
+    Write-Host "[deploy] 旧 Redis 3 已停止并禁用" -ForegroundColor Green
+  } catch {
+    Write-Warning "[deploy] 旧 Redis 3 停止失败（需要管理员权限）：$($_.Exception.Message)"
+    if ($redis8) { Write-Host "[deploy] 请确认 Redis8 服务状态：$($redis8.Status)" -ForegroundColor Yellow }
+  }
+}
+
+Disable-LegacyRedis
+
 $oldPid = Get-BackendPid
 if ($oldPid) {
   Write-Host "[deploy] 备份运行中的 jar/dist ..."
