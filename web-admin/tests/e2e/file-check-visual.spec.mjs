@@ -19,7 +19,9 @@ test('文件巡检页面视觉基线', async ({ page }) => {
     animations: 'disabled',
     caret: 'hide',
     maxDiffPixelRatio: 0.05,
+      maskColor: '#f5f7fa',
     mask: [page.locator('.trend-box')]
   })
 })
+
 
