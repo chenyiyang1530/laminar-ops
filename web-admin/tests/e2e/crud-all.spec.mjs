@@ -12,8 +12,11 @@ const RESOURCES = [
 
 test('24 个 CRUD 资源新增、编辑、删除', async ({ request }, testInfo) => {
   const failureLog = path.resolve(process.cwd(), 'test-results/crud-failures.log')
+  const failureDir = path.resolve(process.cwd(), 'test-results/crud-failures')
   fs.mkdirSync(path.dirname(failureLog), { recursive: true })
   fs.rmSync(failureLog, { force: true })
+  fs.rmSync(failureDir, { recursive: true, force: true })
+  fs.mkdirSync(failureDir, { recursive: true })
   const login = await request.post('/api/auth/login', {
     data: { companyCode: data.companyCode, username: 'e2e_superadmin', password: data.password }
   })
@@ -110,8 +113,12 @@ test('24 个 CRUD 资源新增、编辑、删除', async ({ request }, testInfo)
         throw new Error(`delete ${deleted.status()} id=${id} body=${JSON.stringify(deletedBody)}`)
       }
     } catch (e) {
+      const line = `[${resource}] ${e.message}\n`
       failures.push(`${resource}: ${e.message}`)
-      fs.appendFileSync(failureLog, `[${resource}] ${e.message}\n`)
+      fs.appendFileSync(failureLog, line)
+      const resourceLog = path.join(failureDir, `${resource}.log`)
+      fs.writeFileSync(resourceLog, line)
+      await testInfo.attach(`crud-${resource}`, { path: resourceLog, contentType: 'text/plain' })
     }
   }
 

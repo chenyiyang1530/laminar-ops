@@ -237,7 +237,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: crud-failure-log
-          path: web-admin/test-results/crud-failures.log
+          path: |
+            web-admin/test-results/crud-failures.log
+            web-admin/test-results/crud-failures
           if-no-files-found: ignore
       - name: Show backend log on failure
         if: failure()

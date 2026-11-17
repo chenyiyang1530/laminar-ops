@@ -39,7 +39,7 @@ test('真实表格内容固定数据截图', async ({ page }) => {
   })
 })
 
-test('真实表格模式覆盖公司/设备/备件/优化页面', async ({ page }) => {
+test('真实表格模式覆盖公司/设备/备件/优化/工程师/合同/文档页面', async ({ page }) => {
   await login(page)
   const cases = [
     {
@@ -61,6 +61,21 @@ test('真实表格模式覆盖公司/设备/备件/优化页面', async ({ page 
       name: 'optimization', path: '/app/system/optimization', endpoint: /\/api\/crud\/optimization\/page/,
       record: { id: 9401, title: 'E2E固定优化项', status: '0', priority: '中', createTime: '2026-11-18 00:00:00' },
       text: 'E2E固定优化项'
+    },
+    {
+      name: 'engineer', path: '/app/staff/people', endpoint: /\/api\/crud\/engineer\/page/,
+      record: { engineerId: 9501, engineerName: 'E2E固定工程师', phone: '13800138001', teamTitle: '维保工程师', status: '0' },
+      text: 'E2E固定工程师'
+    },
+    {
+      name: 'contract', path: '/app/organization/overview?tab=contract', endpoint: /\/api\/crud\/contract\/page/,
+      record: { contractId: 9601, contractName: 'E2E固定合同', contractNo: 'E2E-CONTRACT', hospitalName: 'E2E固定医院', companyName: 'E2E固定公司', status: '0' },
+      text: 'E2E固定合同'
+    },
+    {
+      name: 'document', path: '/app/resource/library', endpoint: /\/api\/crud\/document\/page/,
+      record: { docId: 9701, docName: 'E2E固定文档', companyName: 'E2E固定公司', docCategory: '技术文档', version: 'V1.0', status: '0' },
+      text: 'E2E固定文档'
     }
   ]
   for (const item of cases) {

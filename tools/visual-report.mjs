@@ -18,8 +18,11 @@ if (fs.existsSync(source)) {
     const target = path.join(imageRoot, spec)
     fs.mkdirSync(target, { recursive: true })
     const cards = images.map((name) => {
-      fs.copyFileSync(path.join(dir, name), path.join(target, name))
-      return { name, label: name.replace(/\.png$/, '').replace(/-win32$/, '') }
+      const from = path.join(dir, name)
+      fs.copyFileSync(from, path.join(target, name))
+      const platform = name.includes('-linux') ? 'linux' : name.includes('-win32') ? 'windows' : 'other'
+      const date = new Date(fs.statSync(from).mtime).toISOString().slice(0, 10)
+      return { name, label: name.replace(/\.png$/, '').replace(/-(win32|linux)$/, ''), platform, date }
     })
     groups.push({ spec, cards })
   }
@@ -31,7 +34,7 @@ const body = groups.map((group) => `
   <section>
     <h2>${esc(group.spec)} <small>${group.cards.length} 张</small></h2>
     <div class="grid">
-      ${group.cards.map((card) => `<figure><img src="images/${encodeURIComponent(group.spec)}/${encodeURIComponent(card.name)}" loading="lazy"><figcaption>${esc(card.label)}</figcaption></figure>`).join('')}
+      ${group.cards.map((card) => `<figure data-platform="${card.platform}" data-date="${card.date}"><img src="images/${encodeURIComponent(group.spec)}/${encodeURIComponent(card.name)}" loading="lazy"><figcaption>${esc(card.label)}</figcaption></figure>`).join('')}
     </div>
   </section>`).join('')
 
@@ -48,8 +51,13 @@ header{padding:28px 36px 20px;background:linear-gradient(135deg,#0b0f16,#16243a)
 header h1{margin:0 0 8px;font-size:24px}header p{margin:0;color:#9fb0c7;font-size:13px}
 main{padding:24px 36px 48px}section{margin-bottom:32px}h2{font-size:16px;margin:0 0 14px;display:flex;gap:10px;align-items:center}
 h2 small{font-size:12px;color:var(--muted);font-weight:400}
+.filters{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin-bottom:22px;padding:14px 16px;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.filters label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
+.filters select,.filters input{height:32px;border:1px solid var(--line);border-radius:6px;padding:0 9px;background:#fff;color:var(--ink);font-size:12px}
+#visible{font-size:12px;color:var(--muted);margin-left:auto}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
 figure{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(20,40,70,.04)}
+figure.hide{display:none}
 figure img{display:block;width:100%;height:145px;object-fit:cover;object-position:top;background:#eef2f7}
 figcaption{padding:8px 10px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 footer{padding:0 36px 30px;color:var(--muted);font-size:12px}
@@ -57,8 +65,48 @@ footer{padding:0 36px 30px;color:var(--muted);font-size:12px}
 </head>
 <body>
 <header><h1>Laminar Ops 截图基线报告</h1><p>共 ${total} 张截图，按测试文件和页面分组。文件基于当前平台生成。</p></header>
-<main>${body || '<p>暂无截图基线。</p>'}</main>
+<main>
+  <div class="filters">
+    <label>平台
+      <select id="platformFilter">
+        <option value="">全部平台</option>
+        <option value="windows">Windows</option>
+        <option value="linux">Linux</option>
+        <option value="other">其他</option>
+      </select>
+    </label>
+    <label>日期
+      <input id="dateFilter" type="date">
+    </label>
+    <button id="clearFilter" type="button" style="height:32px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--muted);font-size:12px;padding:0 12px">清除</button>
+    <span id="visible"></span>
+  </div>
+  ${body || '<p>暂无截图基线。</p>'}
+</main>
 <footer>生成时间：${new Date().toISOString()} · 来源：web-admin/tests/e2e/__screenshots__</footer>
+<script>
+const platform = document.getElementById('platformFilter');
+const date = document.getElementById('dateFilter');
+const visible = document.getElementById('visible');
+function apply() {
+  let count = 0;
+  for (const card of document.querySelectorAll('figure[data-platform]')) {
+    const okPlatform = !platform.value || card.dataset.platform === platform.value;
+    const okDate = !date.value || card.dataset.date === date.value;
+    card.classList.toggle('hide', !(okPlatform && okDate));
+    if (okPlatform && okDate) count++;
+  }
+  for (const section of document.querySelectorAll('section')) {
+    const shown = section.querySelectorAll('figure:not(.hide)').length;
+    section.style.display = shown ? '' : 'none';
+  }
+  visible.textContent = '显示 ' + count + ' / ${total} 张';
+}
+platform.addEventListener('change', apply);
+date.addEventListener('change', apply);
+document.getElementById('clearFilter').addEventListener('click', () => { platform.value = ''; date.value = ''; apply(); });
+apply();
+</script>
 </body>
 </html>`
 
