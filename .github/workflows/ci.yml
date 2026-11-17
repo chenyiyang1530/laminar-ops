@@ -232,6 +232,13 @@ jobs:
         with:
           name: visual-report
           path: docs/visual-report
+      - name: Upload CRUD failure log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crud-failure-log
+          path: web-admin/test-results/crud-failures.log
+          if-no-files-found: ignore
       - name: Show backend log on failure
         if: failure()
         run: tail -200 backend/app.log

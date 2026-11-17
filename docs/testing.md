@@ -195,3 +195,36 @@ REAL_TABLE_MODE=1 npx playwright test tests/e2e/all-management.spec.mjs --update
 npx playwright test tests/e2e/all-management-mobile.spec.mjs --update-snapshots
 ```
 
+
+## 截图 Pages
+
+工作流 `Publish Visual Report`：
+
+- workflow_dispatch
+- 或在 Visual Baseline (Linux) 完成后自动触发
+
+部署目录：
+
+```
+docs/visual-report
+```
+
+GitHub Pages 需设置为 GitHub Actions 源。
+
+## 真实表格模式
+
+固定数据测试：
+
+```
+web-admin/tests/e2e/real-table.spec.mjs
+```
+
+覆盖医院、公司、设备、备件、优化页面。
+
+## CRUD 失败日志
+
+CI artifact：
+
+```
+crud-failure-log
+```

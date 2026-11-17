@@ -16,6 +16,8 @@ test('文件巡检页面移动端视觉基线', async ({ page }) => {
 
   await page.goto('/app/system/file-check')
   await expect(page.getByText('文件巡检报告').first()).toBeVisible({ timeout: 15_000 })
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  expect(overflow).toBeLessThanOrEqual(2)
   await expect(page).toHaveScreenshot('file-check-mobile.png', {
     animations: 'disabled',
     caret: 'hide',
