@@ -1,0 +1,17 @@
+# Redis 8 + ACL 示例配置
+# 实际文件：D:\ideaWork\redis8-service\Redis-8.10.3-Windows-x64-msys2-with-Service\redis-laminar.conf
+
+port 6380
+bind 127.0.0.1
+protected-mode no
+dir D:/ideaWork/redis8-service/data
+aclfile D:/ideaWork/redis8-service/Redis-8.10.3-Windows-x64-msys2-with-Service/users.acl
+appendonly yes
+save 900 1
+
+logfile D:/ideaWork/redis8-service/redis.log
+loglevel notice
+
+maxmemory 512mb
+maxmemory-policy allkeys-lru
+maxmemory-samples 5

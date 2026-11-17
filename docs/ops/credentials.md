@@ -147,6 +147,46 @@ REDIS_PASSWORD
 
 旧的 Redis 3 服务仍在 6379，保留作为回滚；确认稳定后可停止。
 
+## Redis 内存上限
+
+配置：
+
+```conf
+maxmemory 512mb
+maxmemory-policy allkeys-lru
+maxmemory-samples 5
+```
+
+说明：
+
+```text
+Redis 最多使用约 512MB
+内存达到上限后按 LRU 淘汰键
+监控缓存和会话键可能被淘汰
+```
+
+查看：
+
+```powershell
+redis-cli -p 6380 --user laminar_ops --pass $env:REDIS_PASSWORD `
+  CONFIG GET maxmemory maxmemory-policy
+```
+
+当前值：
+
+```text
+maxmemory = 536870912
+maxmemory-policy = allkeys-lru
+```
+
+生产建议：
+
+```text
+根据服务器总内存调整到 1GB 或 2GB
+不要超过服务器可用内存的 50%
+```
+
+
 ## 注意
 
 ```text
