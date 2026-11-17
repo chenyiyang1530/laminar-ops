@@ -242,3 +242,52 @@ P3 工单图片：168 小时
 
 巡检失败、定时巡检完成、文件恢复会写入 `sys_oper_log`。
 
+
+### 文件巡检增强：SLA、导出、邮件和断点续跑
+
+SLA 超时自动升级定时任务：
+
+```text
+FILE_CHECK_SLA_CRON=0 */10 * * * *
+```
+
+跨批次断点续跑：
+
+```text
+sys_file_check_checkpoint 保存每个文件字段最后扫描主键
+进程中断后新巡检会从最近 running 批次继续
+```
+
+导出：
+
+```text
+GET /api/system/file-check/export?format=xlsx
+GET /api/system/file-check/export?format=pdf
+```
+
+网易邮箱（163）SMTP：
+
+```text
+MAIL_HOST=smtp.163.com
+MAIL_PORT=465
+MAIL_USERNAME=your@163.com
+MAIL_PASSWORD=网易邮箱授权码
+FILE_CHECK_EMAIL_ENABLED=true
+FILE_CHECK_EMAIL_TO=ops@example.com
+```
+
+网易邮箱密码必须使用“客户端授权码”，不是登录密码。
+
+文件类型等级规则：
+
+```yaml
+laminar.file-check.type-severity:
+  document: P2
+  image: P3
+  other: P3
+laminar.file-check.sla-hours:
+  P1: 24
+  P2: 72
+  P3: 168
+```
+

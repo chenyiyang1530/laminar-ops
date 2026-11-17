@@ -8,6 +8,8 @@
         </div>
         <div>
           <el-button :loading="running" type="primary" :disabled="!canRun" @click="runNow">立即巡检</el-button>
+          <el-button @click="exportFile('xlsx')">导出 Excel</el-button>
+          <el-button @click="exportFile('pdf')">导出 PDF</el-button>
           <el-button @click="loadAll">刷新</el-button>
         </div>
       </div>
@@ -135,6 +137,9 @@
     </el-dialog>
 
     <el-dialog v-model="batchVisible" title="批量恢复文件" width="760px">
+      <el-alert v-if="batchFailures.length" type="error" :closable="false" show-icon style="margin-bottom: 10px">
+        {{ batchFailures.length }} 个文件恢复失败，可重试或关闭后重新选择
+      </el-alert>
       <el-table :data="batchRows" size="small">
         <el-table-column prop="severity" label="等级" width="66" />
         <el-table-column prop="tableName" label="表" width="150" />
@@ -142,10 +147,18 @@
         <el-table-column label="新文件" min-width="300">
           <template #default="{ row }"><FileUpload v-model="row.recoverFile" category="document" /></template>
         </el-table-column>
+        <el-table-column label="结果" width="70">
+          <template #default="{ row }">
+            <el-tag v-if="row.batchError" type="danger" size="small">失败</el-tag>
+            <el-tag v-else-if="row.batchOk" type="success" size="small">成功</el-tag>
+          </template>
+        </el-table-column>
       </el-table>
       <template #footer>
         <el-button @click="batchVisible = false">取消</el-button>
-        <el-button type="primary" :loading="batchSaving" @click="submitBatch">批量恢复</el-button>
+        <el-button type="primary" :loading="batchSaving" @click="submitBatch">
+          {{ batchFailures.length ? '重试失败项' : '批量恢复' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -190,6 +203,7 @@ const recoverFile = ref('')
 const recovering = ref(false)
 const batchVisible = ref(false)
 const batchRows = ref([])
+const batchFailures = ref([])
 const batchSaving = ref(false)
 
 const trendOption = computed(() => ({
@@ -210,7 +224,9 @@ function isOverdue(row) {
 
 async function loadTrend() {
   try {
-    const res = await request.get('/system/file-check/trend', { params: { days: 30 } })
+    const res = await request.get('/system/file-check/trend', {
+      params: { days: 30, companyId: filters.companyId, hospitalId: filters.hospitalId }
+    })
     trend.value = res.data || []
   } catch {
     trend.value = []
@@ -254,6 +270,7 @@ async function loadItems() {
 function searchItems() {
   itemPage.value = 1
   loadItems()
+  loadTrend()
 }
 
 function resetItems() {
@@ -324,12 +341,13 @@ async function submitRecover() {
 }
 
 function openBatch() {
-  batchRows.value = selection.value.map((row) => ({ ...row, recoverFile: '' }))
+  batchRows.value = selection.value.map((row) => ({ ...row, recoverFile: '', batchError: '', batchOk: false }))
+  batchFailures.value = []
   batchVisible.value = true
 }
 
 async function submitBatch() {
-  const ready = batchRows.value.filter((row) => row.recoverFile)
+  const ready = batchRows.value.filter((row) => row.recoverFile && !row.batchOk)
   if (!ready.length) {
     ElMessage.warning('请至少上传一个文件')
     return
@@ -337,15 +355,55 @@ async function submitBatch() {
   batchSaving.value = true
   try {
     let ok = 0
+    const failed = []
     for (const row of ready) {
-      await request.post(`/system/file-check/items/${row.itemId}/recover`, { fileUrl: row.recoverFile })
-      ok++
+      try {
+        await request.post(`/system/file-check/items/${row.itemId}/recover`, { fileUrl: row.recoverFile })
+        row.batchOk = true
+        row.batchError = ''
+        ok++
+      } catch (e) {
+        row.batchOk = false
+        row.batchError = e?.response?.data?.msg || e?.message || '恢复失败'
+        failed.push(row)
+      }
     }
-    ElMessage.success(`已恢复 ${ok} 个文件`)
-    batchVisible.value = false
-    await loadAll()
+    batchFailures.value = failed
+    if (failed.length) {
+      ElMessage.warning(`成功 ${ok} 个，失败 ${failed.length} 个，可重试失败项`)
+      await loadAll()
+    } else {
+      ElMessage.success(`已恢复 ${ok} 个文件`)
+      batchVisible.value = false
+      await loadAll()
+    }
   } finally {
     batchSaving.value = false
+  }
+}
+
+async function exportFile(format) {
+  try {
+    const res = await request.get('/system/file-check/export', {
+      params: {
+        format,
+        status: filters.status,
+        keyword: filters.keyword,
+        companyId: filters.companyId,
+        hospitalId: filters.hospitalId,
+        fileType: filters.fileType,
+        severity: filters.severity
+      },
+      responseType: 'blob'
+    })
+    const blob = new Blob([res.data], { type: format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `file-check-${new Date().toISOString().slice(0, 10)}.${format}`
+    link.click()
+    URL.revokeObjectURL(link.href)
+  } catch {
+    ElMessage.error('导出失败')
   }
 }
 

@@ -19,6 +19,15 @@ spring:
       - optional:file:../.secrets.local[.properties]
   application:
     name: laminar-ops
+  mail:
+    host: ${MAIL_HOST:smtp.163.com}
+    port: ${MAIL_PORT:465}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.ssl.enable: true
   datasource:
     url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/laminar_ops?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${DB_USERNAME:laminar_ops}
@@ -70,6 +79,9 @@ management:
       show-details: never
       probes:
         enabled: true
+  health:
+    mail:
+      enabled: false
 
 laminar:
   monitor:
@@ -115,8 +127,19 @@ laminar:
   file-check:
     enabled: ${FILE_CHECK_ENABLED:true}
     cron: "${FILE_CHECK_CRON:0 30 3 * * *}"
+    sla-cron: "${FILE_CHECK_SLA_CRON:0 */10 * * * *}"
     batch-size: ${FILE_CHECK_BATCH_SIZE:500}
     threads: ${FILE_CHECK_THREADS:4}
+    email-enabled: ${FILE_CHECK_EMAIL_ENABLED:false}
+    email-to: ${FILE_CHECK_EMAIL_TO:}
+    type-severity:
+      document: ${FILE_CHECK_SEVERITY_DOCUMENT:P2}
+      image: ${FILE_CHECK_SEVERITY_IMAGE:P3}
+      other: ${FILE_CHECK_SEVERITY_OTHER:P3}
+    sla-hours:
+      P1: ${FILE_CHECK_SLA_P1:24}
+      P2: ${FILE_CHECK_SLA_P2:72}
+      P3: ${FILE_CHECK_SLA_P3:168}
   web:
     admin-dist: ${WEB_ADMIN_DIST:D:/ideaWork/laminar-ops/web-admin/dist}
     portal-dist: ${WEB_PORTAL_DIST:D:/ideaWork/laminar-ops/web-admin/dist-portal}

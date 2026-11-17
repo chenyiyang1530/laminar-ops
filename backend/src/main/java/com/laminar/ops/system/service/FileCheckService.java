@@ -54,27 +54,25 @@ public class FileCheckService {
 
     private final JdbcTemplate jdbc;
     private final SystemAlertService systemAlertService;
+    private final FileCheckProperties properties;
+    private final MailNotificationService mailNotificationService;
 
     @Value("${laminar.upload.path:}")
     private String uploadPath;
-
-    @Value("${laminar.file-check.batch-size:500}")
-    private int batchSize;
-
-    @Value("${laminar.file-check.threads:4}")
-    private int threads;
 
     public Map<String, Object> run(String triggerType) {
         if (!RUNNING.compareAndSet(false, true)) {
             return Map.of("status", "running");
         }
-        long runId = createRun(triggerType);
+        long runId = findResumableRun();
+        if (runId == 0) runId = createRun(triggerType);
         long start = System.currentTimeMillis();
         try {
             Path root = Path.of(uploadPath).toAbsolutePath().normalize();
-            ScanResult scan = scanAll(root);
-            List<Missing> missing = scan.missing();
-            Map<String, Long> itemIds = upsertItems(runId, missing);
+            ScanResult scan = scanAll(root, runId);
+            MissingItems loaded = loadMissing(runId);
+            List<Missing> missing = loaded.missing();
+            Map<String, Long> itemIds = loaded.ids();
             int recovered = markRecovered(runId);
 
             jdbc.update("update sys_file_check_run set status='success', checked=?, missing=?, recovered=?, end_time=now() where run_id=?",
@@ -86,6 +84,8 @@ public class FileCheckService {
                         .collect(Collectors.joining("；"));
                 systemAlertService.error("file-existence-missing", "文件存在性巡检告警",
                         "发现 " + missing.size() + " 个文件丢失：" + samples);
+                mailNotificationService.send("文件巡检发现 " + missing.size() + " 个文件丢失",
+                        "文件巡检批次 " + runId + " 发现 " + missing.size() + " 个文件丢失。\n" + samples);
             }
             if ("scheduled".equals(triggerType)) {
                 audit("文件巡检完成", "0", null, "batch=" + runId + " checked=" + scan.checked() + " missing=" + missing.size());
@@ -124,8 +124,7 @@ public class FileCheckService {
     }
 
     public Map<String, Object> pageItems(int pageNum, int pageSize, String status, String keyword,
-                                         Long companyId, Long hospitalId, String fileType, String severity, Long itemId) {
-        int offset = Math.max(0, (pageNum - 1) * pageSize);
+                                         Long companyId, Long hospitalId, String fileType, String severity, Long itemId) {        int offset = Math.max(0, (pageNum - 1) * pageSize);
         List<Object> args = new ArrayList<>();
         StringBuilder where = new StringBuilder(" where 1=1 ");
         if (status != null && !status.isBlank()) { where.append(" and i.status=?"); args.add(status); }
@@ -158,21 +157,33 @@ public class FileCheckService {
         return result;
     }
 
-    public List<Map<String, Object>> trend(int days) {
+    public List<Map<String, Object>> exportRows(String status, String keyword, Long companyId,
+                                                Long hospitalId, String fileType, String severity) {
+        return (List<Map<String, Object>>) pageItems(1, 10000, status, keyword,
+                companyId, hospitalId, fileType, severity, null).get("records");
+    }
+
+    public List<Map<String, Object>> trend(int days, Long companyId, Long hospitalId) {
         int span = Math.max(1, Math.min(days, 365));
         LocalDate start = LocalDate.now().minusDays(span - 1L);
         Map<String, long[]> data = new LinkedHashMap<>();
         for (int i = 0; i < span; i++) {
             data.put(start.plusDays(i).format(DateTimeFormatter.ISO_DATE), new long[]{0, 0});
         }
+        List<Object> args = new ArrayList<>();
+        args.add(start);
+        StringBuilder scope = new StringBuilder();
+        if (companyId != null) { scope.append(" and company_id=?"); args.add(companyId); }
+        if (hospitalId != null) { scope.append(" and hospital_id=?"); args.add(hospitalId); }
         jdbc.queryForList("select date(first_seen) d, count(*) c from sys_file_check_item " +
-                        "where first_seen>=? group by date(first_seen)", start)
+                        "where first_seen>=?" + scope + " group by date(first_seen)", args.toArray())
                 .forEach(row -> {
                     String day = String.valueOf(row.get("d"));
                     if (data.containsKey(day)) data.get(day)[0] = ((Number) row.get("c")).longValue();
                 });
+        List<Object> resolvedArgs = new ArrayList<>(args);
         jdbc.queryForList("select date(resolved_time) d, count(*) c from sys_file_check_item " +
-                        "where resolved_time is not null and resolved_time>=? group by date(resolved_time)", start)
+                        "where resolved_time is not null and resolved_time>=?" + scope + " group by date(resolved_time)", resolvedArgs.toArray())
                 .forEach(row -> {
                     String day = String.valueOf(row.get("d"));
                     if (data.containsKey(day)) data.get(day)[1] = ((Number) row.get("c")).longValue();
@@ -220,32 +231,35 @@ public class FileCheckService {
         return result;
     }
 
-    private ScanResult scanAll(Path root) throws Exception {
-        ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, Math.min(threads, 16)));
+    private ScanResult scanAll(Path root, long runId) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, Math.min(properties.getThreads(), 16)));
         try {
             List<Future<RefResult>> futures = new ArrayList<>();
             for (FileRef ref : REFS) {
-                futures.add(executor.submit(scanRef(root, ref)));
+                futures.add(executor.submit(scanRef(runId, root, ref)));
             }
-            List<Missing> all = new ArrayList<>();
             int checked = 0;
-            for (Future<RefResult> future : futures) {
-                RefResult result = future.get();
-                all.addAll(result.missing());
-                checked += result.checked();
-            }
-            return new ScanResult(all, checked);
+            for (Future<RefResult> future : futures) checked += future.get().checked();
+            return new ScanResult(checked);
         } finally {
             executor.shutdownNow();
         }
     }
 
-    private Callable<RefResult> scanRef(Path root, FileRef ref) {
+    private Callable<RefResult> scanRef(long runId, Path root, FileRef ref) {
         return () -> {
-            List<Missing> result = new ArrayList<>();
-            int checked = 0;
-            int size = Math.max(50, Math.min(batchSize, 5000));
-            long lastId = 0;
+            String key = ref.table() + "|" + ref.column();
+            Map<String, Object> checkpoint = jdbc.queryForList(
+                            "select last_id, checked, missing, status from sys_file_check_checkpoint where run_id=? and ref_key=?",
+                            runId, key)
+                    .stream().findFirst().orElse(null);
+            if (checkpoint != null && "done".equals(String.valueOf(checkpoint.get("status")))) {
+                return new RefResult(((Number) checkpoint.get("checked")).intValue());
+            }
+            long lastId = checkpoint == null ? 0 : ((Number) checkpoint.get("last_id")).longValue();
+            int checked = checkpoint == null ? 0 : ((Number) checkpoint.get("checked")).intValue();
+            int missingCount = checkpoint == null ? 0 : ((Number) checkpoint.get("missing")).intValue();
+            int size = Math.max(50, Math.min(properties.getBatchSize(), 5000));
             while (true) {
                 List<Map<String, Object>> rows = jdbc.queryForList(
                         "select `" + ref.id() + "` as id, `" + ref.column() + "` as path from `" + ref.table() + "` " +
@@ -260,13 +274,18 @@ public class FileCheckService {
                     checked++;
                     Path target = root.resolve(path).normalize();
                     if (!target.startsWith(root) || !Files.isRegularFile(target)) {
-                        result.add(new Missing(ref, recordId, path, context(ref, recordId),
-                                fileType(path), severity(ref), slaHours(ref)));
+                        String type = fileType(path);
+                        String severity = properties.getTypeSeverity().getOrDefault(type, "P3");
+                        int sla = properties.getSlaHours().getOrDefault(severity, 168);
+                        upsertMissing(runId, new Missing(ref, recordId, path, context(ref, recordId), type, severity, sla));
+                        missingCount++;
                     }
                 }
+                saveCheckpoint(runId, key, lastId, checked, missingCount, "running");
                 if (rows.size() < size) break;
             }
-            return new RefResult(result, checked);
+            saveCheckpoint(runId, key, lastId, checked, missingCount, "done");
+            return new RefResult(checked);
         };
     }
 
@@ -286,30 +305,64 @@ public class FileCheckService {
                 "where status='0' and run_id<>?", runId);
     }
 
-    private Map<String, Long> upsertItems(long runId, List<Missing> missing) {
-        Map<String, Long> ids = new LinkedHashMap<>();
-        for (Missing m : missing) {
-            int updated = jdbc.update("update sys_file_check_item set run_id=?, file_path=?, file_type=?, severity=?, " +
-                            "sla_hours=?, company_id=?, hospital_id=?, last_seen=now(), status='0', resolved_time=null, " +
-                            "sla_deadline=case when status='1' or sla_deadline is null then date_add(now(), interval ? hour) else sla_deadline end, " +
-                            "first_seen=case when status='1' then now() else first_seen end " +
-                            "where table_name=? and record_id=? and file_column=?",
-                    runId, m.path(), m.fileType(), m.severity(), m.slaHours(),
-                    m.context().companyId(), m.context().hospitalId(), m.slaHours(),
-                    m.ref().table(), m.recordId(), m.ref().column());
-            if (updated == 0) {
-                jdbc.update("insert into sys_file_check_item(run_id, table_name, record_id, file_column, file_path, " +
-                                "file_type, severity, sla_hours, sla_deadline, company_id, hospital_id, status, first_seen, last_seen) " +
-                                "values(?,?,?,?,?,?,?,?,date_add(now(), interval ? hour),?,?,'0',now(),now())",
-                        runId, m.ref().table(), m.recordId(), m.ref().column(), m.path(),
-                        m.fileType(), m.severity(), m.slaHours(), m.slaHours(),
-                        m.context().companyId(), m.context().hospitalId());
-            }
-            Long id = jdbc.queryForObject("select item_id from sys_file_check_item where table_name=? and record_id=? and file_column=?",
-                    Long.class, m.ref().table(), m.recordId(), m.ref().column());
-            if (id != null) ids.put(itemKey(m), id);
+    private Long upsertMissing(long runId, Missing m) {
+        int updated = jdbc.update("update sys_file_check_item set run_id=?, file_path=?, file_type=?, severity=?, " +
+                        "sla_hours=?, company_id=?, hospital_id=?, last_seen=now(), status='0', resolved_time=null, " +
+                        "escalated='0', escalated_time=null, " +
+                        "sla_deadline=case when status='1' or sla_deadline is null then date_add(now(), interval ? hour) else sla_deadline end, " +
+                        "first_seen=case when status='1' then now() else first_seen end " +
+                        "where table_name=? and record_id=? and file_column=?",
+                runId, m.path(), m.fileType(), m.severity(), m.slaHours(),
+                m.context().companyId(), m.context().hospitalId(), m.slaHours(),
+                m.ref().table(), m.recordId(), m.ref().column());
+        if (updated == 0) {
+            jdbc.update("insert into sys_file_check_item(run_id, table_name, record_id, file_column, file_path, " +
+                            "file_type, severity, sla_hours, sla_deadline, company_id, hospital_id, status, first_seen, last_seen) " +
+                            "values(?,?,?,?,?,?,?,?,date_add(now(), interval ? hour),?,?,'0',now(),now())",
+                    runId, m.ref().table(), m.recordId(), m.ref().column(), m.path(),
+                    m.fileType(), m.severity(), m.slaHours(), m.slaHours(),
+                    m.context().companyId(), m.context().hospitalId());
         }
-        return ids;
+        return jdbc.queryForObject("select item_id from sys_file_check_item where table_name=? and record_id=? and file_column=?",
+                Long.class, m.ref().table(), m.recordId(), m.ref().column());
+    }
+
+    private MissingItems loadMissing(long runId) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select item_id, table_name, record_id, file_column, file_path, file_type, severity, sla_hours, company_id, hospital_id " +
+                        "from sys_file_check_item where run_id=? and status='0'", runId);
+        List<Missing> missing = new ArrayList<>();
+        Map<String, Long> ids = new LinkedHashMap<>();
+        for (Map<String, Object> row : rows) {
+            FileRef ref = REFS.stream()
+                    .filter(r -> r.table().equals(String.valueOf(row.get("table_name")))
+                            && r.column().equals(String.valueOf(row.get("file_column"))))
+                    .findFirst().orElse(null);
+            if (ref == null) continue;
+            Long recordId = ((Number) row.get("record_id")).longValue();
+            Missing m = new Missing(ref, recordId, String.valueOf(row.get("file_path")),
+                    new Context(longOrNull(row.get("company_id")), longOrNull(row.get("hospital_id"))),
+                    String.valueOf(row.get("file_type")), String.valueOf(row.get("severity")),
+                    ((Number) row.get("sla_hours")).intValue());
+            missing.add(m);
+            ids.put(itemKey(m), ((Number) row.get("item_id")).longValue());
+        }
+        return new MissingItems(missing, ids);
+    }
+
+    private void saveCheckpoint(long runId, String refKey, long lastId, int checked, int missing, String status) {
+        int updated = jdbc.update("update sys_file_check_checkpoint set last_id=?, checked=?, missing=?, status=?, updated_time=now() " +
+                        "where run_id=? and ref_key=?", lastId, checked, missing, status, runId, refKey);
+        if (updated == 0) {
+            jdbc.update("insert into sys_file_check_checkpoint(run_id, ref_key, last_id, checked, missing, status, updated_time) " +
+                            "values(?,?,?,?,?,?,now())", runId, refKey, lastId, checked, missing, status);
+        }
+    }
+
+    private long findResumableRun() {
+        List<Long> rows = jdbc.queryForList(
+                "select run_id from sys_file_check_run where status='running' order by run_id desc limit 1", Long.class);
+        return rows.isEmpty() ? 0 : rows.get(0);
     }
 
     private void notifyGroups(long runId, List<Missing> missing, Map<String, Long> itemIds) {
@@ -374,22 +427,6 @@ public class FileCheckService {
         return "other";
     }
 
-    private String severity(FileRef ref) {
-        return switch (ref.table()) {
-            case "biz_certificate", "biz_company_qualification", "biz_contract" -> "P1";
-            case "biz_document", "biz_inspection_item" -> "P2";
-            default -> "P3";
-        };
-    }
-
-    private int slaHours(FileRef ref) {
-        return switch (ref.table()) {
-            case "biz_certificate", "biz_company_qualification", "biz_contract" -> 24;
-            case "biz_document", "biz_inspection_item" -> 72;
-            default -> 168;
-        };
-    }
-
     private String itemKey(Missing m) {
         return m.ref().table() + "|" + m.recordId() + "|" + m.ref().column();
     }
@@ -423,9 +460,14 @@ public class FileCheckService {
                            String fileType, String severity, int slaHours) {
     }
 
-    private record RefResult(List<Missing> missing, int checked) {
+    private record RefResult(int checked) {
     }
 
-    private record ScanResult(List<Missing> missing, int checked) {
+    private record ScanResult(int checked) {
+    }
+
+    private record MissingItems(List<Missing> missing, Map<String, Long> ids) {
     }
 }
+
+
