@@ -24,3 +24,7 @@ certs/
 
 .secrets.local
 backend/certs/
+
+web-admin/playwright-report/
+web-admin/test-results/
+e2e/.test-data.json

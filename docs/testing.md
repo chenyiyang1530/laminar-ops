@@ -79,3 +79,34 @@ npm run test:integration
 集成测试只做只读查询，不创建、不删除、不归档业务数据。
 
 前端 Vitest 依赖 esbuild 子进程；如果运行环境沙箱禁止 spawn，需要允许子进程或使用普通终端执行。
+## 前端 E2E（登录到验收）
+
+前置：
+
+```text
+后端 8080
+MySQL/Redis
+Edge 浏览器
+E2E 测试数据使用 company_id=7、hospital_id=11、equipment_id=19
+```
+
+执行：
+
+```bash
+cd web-admin
+npm install
+npm run test:e2e
+```
+
+覆盖：
+
+```text
+公司管理员登录
+受理
+派工给 E2E 工程师
+工程师登录、到场、完工
+院方账号登录、验收通过
+验收后状态为待回访
+```
+
+测试脚本会自动创建和清理 E2E 账号、工程师和工单。
