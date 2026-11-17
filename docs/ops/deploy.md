@@ -160,3 +160,33 @@ export UPLOAD_DIR=/var/lib/laminar-ops/upload
 [启动] 上传目录校验通过：...
 ```
 
+
+### 文件存在性巡检
+
+默认每天 03:30 扫描业务表中的文件路径：
+
+```text
+biz_certificate
+biz_company_qualification
+biz_contract
+biz_document
+biz_inspection_item
+biz_workorder
+biz_workorder_archive
+```
+
+发现文件丢失时写入超级管理员站内消息。
+
+配置：
+
+```text
+FILE_CHECK_ENABLED=true
+FILE_CHECK_CRON=0 30 3 * * *
+```
+
+手动执行：
+
+```text
+POST /api/system/file-check/run
+```
+
