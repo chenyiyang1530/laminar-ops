@@ -216,19 +216,6 @@ jobs:
           MYSQL_ROOT_PASSWORD: root
         run: npx playwright test --reporter=list
         working-directory: web-admin
-      - name: Run screenshot regression when Linux baseline exists
-        env:
-          CI: 'false'
-          E2E_BROWSER_CHANNEL: chromium
-          MYSQL_BIN: mysql
-          MYSQL_ROOT_PASSWORD: root
-        run: |
-          if compgen -G "tests/e2e/__screenshots__/**/*-linux.png" > /dev/null; then
-            npx playwright test tests/e2e/visual.spec.mjs tests/e2e/file-check-visual.spec.mjs --reporter=list
-          else
-            echo "Linux screenshot baseline not generated yet; run Visual Baseline (Linux) workflow."
-          fi
-        working-directory: web-admin
       - name: Cleanup E2E data
         if: always()
         env:

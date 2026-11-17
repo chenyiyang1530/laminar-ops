@@ -4,7 +4,6 @@ import path from 'node:path'
 
 const data = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '../../../e2e/.test-data.json'), 'utf8'))
 
-test.skip(process.env.CI === 'true', 'CI Linux 需要单独生成文件巡检页面基线')
 
 test('文件巡检页面视觉基线', async ({ page }) => {
   await page.goto('/app/login')
@@ -23,3 +22,4 @@ test('文件巡检页面视觉基线', async ({ page }) => {
     mask: [page.locator('.trend-box')]
   })
 })
+

@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -126,6 +127,14 @@ public class FileCheckAsyncService {
         jdbc.update("update sys_async_job set status='cancelled', update_time=now() where job_id=? and status='running'", jobId);
     }
 
+    public int cancelAll(List<Long> jobIds) {
+        if (jobIds == null || jobIds.isEmpty()) return 0;
+        String placeholders = jobIds.stream().map(id -> "?").collect(Collectors.joining(","));
+        List<Object> args = new ArrayList<>(jobIds);
+        return jdbc.update("update sys_async_job set status='cancelled', update_time=now() " +
+                "where status='running' and job_id in (" + placeholders + ")", args.toArray());
+    }
+
     @SuppressWarnings("unchecked")
     public long retry(long jobId, String username) {
         Map<String, Object> job = job(jobId);
@@ -183,3 +192,5 @@ public class FileCheckAsyncService {
                 status, message == null ? "" : message.substring(0, Math.min(message.length(), 1900)), jobId);
     }
 }
+
+

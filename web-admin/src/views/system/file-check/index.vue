@@ -155,8 +155,10 @@
         <el-tab-pane label="异步任务" name="jobs">
           <div class="recipient-tools">
             <el-button @click="loadJobs">刷新</el-button>
+            <el-button type="danger" :disabled="!jobSelection.length" @click="cancelSelectedJobs">批量取消</el-button>
           </div>
-          <el-table v-loading="jobLoading" :data="jobs" stripe>
+          <el-table v-loading="jobLoading" :data="jobs" stripe @selection-change="onJobSelection">
+            <el-table-column type="selection" width="46" :selectable="(row) => row.status === 'running'" />
             <el-table-column prop="jobId" label="任务ID" width="80" />
             <el-table-column prop="jobType" label="类型" width="150" />
             <el-table-column prop="status" label="状态" width="100">
@@ -296,6 +298,7 @@ const jobLoading = ref(false)
 const jobPage = ref(1)
 const jobSize = ref(20)
 const jobTotal = ref(0)
+const jobSelection = ref([])
 
 const trendOption = computed(() => ({
   tooltip: { trigger: 'axis' },
@@ -565,6 +568,18 @@ async function loadJobs() {
 async function cancelJob(row) {
   await request.post(`/system/file-check/jobs/${row.jobId}/cancel`)
   ElMessage.success('已请求取消')
+  await loadJobs()
+}
+
+function onJobSelection(rows) {
+  jobSelection.value = rows
+}
+
+async function cancelSelectedJobs() {
+  if (!jobSelection.value.length) return
+  await ElMessageBox.confirm(`取消选中的 ${jobSelection.value.length} 个运行中任务？`, '提示', { type: 'warning' })
+  const res = await request.post('/system/file-check/jobs/cancel', jobSelection.value.map((job) => job.jobId))
+  ElMessage.success(`已取消 ${res.data.cancelled || 0} 个任务`)
   await loadJobs()
 }
 

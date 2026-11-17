@@ -125,6 +125,12 @@ public class FileCheckController {
         return Result.ok();
     }
 
+    @PostMapping("/jobs/cancel")
+    @Perm("system:filecheck:run")
+    public Result<Map<String, Object>> cancelJobs(@RequestBody List<Long> ids) {
+        return Result.ok(Map.of("cancelled", fileCheckAsyncService.cancelAll(ids)));
+    }
+
     @PostMapping("/jobs/{id}/retry")
     @Perm("system:filecheck:run")
     public Result<Map<String, Object>> retryJob(@PathVariable Long id) {
