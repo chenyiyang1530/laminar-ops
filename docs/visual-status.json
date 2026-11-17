@@ -1,0 +1,14 @@
+{
+  "all-management-mobile.spec.mjs": "passed",
+  "all-management.spec.mjs": "passed",
+  "crud-all.spec.mjs": "passed",
+  "file-check-mobile-visual.spec.mjs": "passed",
+  "file-check-visual.spec.mjs": "passed",
+  "file-check.spec.mjs": "passed",
+  "missing-file.spec.mjs": "passed",
+  "mobile.spec.mjs": "passed",
+  "real-table.spec.mjs": "passed",
+  "subadmin.spec.mjs": "passed",
+  "visual.spec.mjs": "passed",
+  "workorder.spec.mjs": "passed"
+}

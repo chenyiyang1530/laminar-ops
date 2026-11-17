@@ -78,6 +78,7 @@ test('24 个 CRUD 资源新增、编辑、删除', async ({ request }, testInfo)
   }
 
   for (const resource of RESOURCES) {
+    let step = 'meta'
     try {
       const metaRes = await request.get(`/api/crud/${resource}/meta`, { headers })
       if (!metaRes.ok()) throw new Error(`meta ${metaRes.status()}`)
@@ -85,6 +86,7 @@ test('24 个 CRUD 资源新增、编辑、删除', async ({ request }, testInfo)
       const nameField = (meta.fields || []).find((f) => f.column === meta.nameColumn)?.name
       if (!nameField) throw new Error('找不到名称字段')
 
+      step = 'create'
       const createPayload = await build(resource, meta, nameField)
       const created = await request.post(`/api/crud/${resource}`, { headers, data: createPayload })
       if (!created.ok()) throw new Error(`create ${created.status()} ${await created.text()} payload=${JSON.stringify(createPayload)}`)
@@ -94,6 +96,7 @@ test('24 个 CRUD 资源新增、编辑、删除', async ({ request }, testInfo)
       }
       const id = createdBody.data
 
+      step = 'update'
       const updateValue = `${createPayload[nameField] || 'E2E'}_EDIT`
       const updatePayload = { [meta.pk]: id, [nameField]: updateValue }
       const updated = await request.put(`/api/crud/${resource}`, {
@@ -104,21 +107,23 @@ test('24 个 CRUD 资源新增、编辑、删除', async ({ request }, testInfo)
         throw new Error(`update ${updated.status()} payload=${JSON.stringify(updatePayload)} body=${JSON.stringify(updatedBody)}`)
       }
 
+      step = 'get'
       const detail = await request.get(`/api/crud/${resource}/${id}`, { headers })
       if (!detail.ok() || (await detail.json()).code !== 200) throw new Error(`get ${detail.status()} id=${id}`)
 
+      step = 'delete'
       const deleted = await request.delete(`/api/crud/${resource}/${id}`, { headers })
       const deletedBody = await deleted.json()
       if (!deleted.ok() || deletedBody.code !== 200) {
         throw new Error(`delete ${deleted.status()} id=${id} body=${JSON.stringify(deletedBody)}`)
       }
     } catch (e) {
-      const line = `[${resource}] ${e.message}\n`
-      failures.push(`${resource}: ${e.message}`)
+      const line = `[${resource}/${step}] ${e.message}\n`
+      failures.push(`${resource}/${step}: ${e.message}`)
       fs.appendFileSync(failureLog, line)
-      const resourceLog = path.join(failureDir, `${resource}.log`)
+      const resourceLog = path.join(failureDir, `${resource}-${step}.log`)
       fs.writeFileSync(resourceLog, line)
-      await testInfo.attach(`crud-${resource}`, { path: resourceLog, contentType: 'text/plain' })
+      await testInfo.attach(`crud-${resource}-${step}`, { path: resourceLog, contentType: 'text/plain' })
     }
   }
 

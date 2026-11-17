@@ -7,7 +7,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
+  reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }], ['json', { outputFile: 'test-results/results.json' }]],
   snapshotPathTemplate: '{testDir}/__screenshots__/{testFilePath}/{arg}-{platform}{ext}',
   globalSetup: './tests/e2e/global-setup.mjs',
   globalTeardown: './tests/e2e/global-teardown.mjs',
@@ -20,3 +20,4 @@ export default defineConfig({
     screenshot: 'only-on-failure'
   }
 })
+

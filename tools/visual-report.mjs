@@ -9,6 +9,27 @@ fs.rmSync(output, { recursive: true, force: true })
 fs.mkdirSync(imageRoot, { recursive: true })
 
 const groups = []
+const resultsFile = path.join(root, 'web-admin', 'test-results', 'results.json')
+const statusFile = path.join(root, 'docs', 'visual-status.json')
+const testStatus = new Map()
+if (fs.existsSync(resultsFile)) {
+  const results = JSON.parse(fs.readFileSync(resultsFile, 'utf8'))
+  const walk = (suites) => {
+    for (const suite of suites || []) {
+      if (suite.file) {
+        const passed = (suite.specs || []).every((spec) => spec.ok !== false)
+        testStatus.set(path.basename(suite.file), passed ? 'passed' : 'failed')
+      }
+      walk(suite.suites)
+    }
+  }
+  walk(results.suites)
+  fs.writeFileSync(statusFile, JSON.stringify(Object.fromEntries(testStatus), null, 2) + '\n')
+} else if (fs.existsSync(statusFile)) {
+  for (const [name, status] of Object.entries(JSON.parse(fs.readFileSync(statusFile, 'utf8')))) {
+    testStatus.set(name, status)
+  }
+}
 if (fs.existsSync(source)) {
   for (const spec of fs.readdirSync(source).sort()) {
     const dir = path.join(source, spec)
@@ -24,7 +45,7 @@ if (fs.existsSync(source)) {
       const date = new Date(fs.statSync(from).mtime).toISOString().slice(0, 10)
       return { name, label: name.replace(/\.png$/, '').replace(/-(win32|linux)$/, ''), platform, date }
     })
-    groups.push({ spec, cards })
+    groups.push({ spec, cards, status: testStatus.get(spec) || 'unknown' })
   }
 }
 
@@ -32,7 +53,7 @@ const esc = (value) => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;'
 const total = groups.reduce((n, g) => n + g.cards.length, 0)
 const body = groups.map((group) => `
   <section>
-    <h2>${esc(group.spec)} <small>${group.cards.length} 张</small></h2>
+    <h2>${esc(group.spec)} <small>${group.cards.length} 张</small> <span class="status ${group.status}">${group.status === 'passed' ? '通过' : group.status === 'failed' ? '失败' : '未运行'}</span></h2>
     <div class="grid">
       ${group.cards.map((card) => `<figure data-platform="${card.platform}" data-date="${card.date}"><img src="images/${encodeURIComponent(group.spec)}/${encodeURIComponent(card.name)}" loading="lazy"><figcaption>${esc(card.label)}</figcaption></figure>`).join('')}
     </div>
@@ -51,6 +72,8 @@ header{padding:28px 36px 20px;background:linear-gradient(135deg,#0b0f16,#16243a)
 header h1{margin:0 0 8px;font-size:24px}header p{margin:0;color:#9fb0c7;font-size:13px}
 main{padding:24px 36px 48px}section{margin-bottom:32px}h2{font-size:16px;margin:0 0 14px;display:flex;gap:10px;align-items:center}
 h2 small{font-size:12px;color:var(--muted);font-weight:400}
+.status{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:10px;font-size:10px;font-weight:600}
+.status.passed{background:#e8f7ee;color:#16803a}.status.failed{background:#fdecec;color:#c62828}.status.unknown{background:#eef2f7;color:#66758a}
 .filters{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin-bottom:22px;padding:14px 16px;background:var(--surface);border:1px solid var(--line);border-radius:10px}
 .filters label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
 .filters select,.filters input{height:32px;border:1px solid var(--line);border-radius:6px;padding:0 9px;background:#fff;color:var(--ink);font-size:12px}
@@ -88,6 +111,9 @@ footer{padding:0 36px 30px;color:var(--muted);font-size:12px}
 const platform = document.getElementById('platformFilter');
 const date = document.getElementById('dateFilter');
 const visible = document.getElementById('visible');
+const initial = new URLSearchParams(location.search);
+platform.value = initial.get('platform') || '';
+date.value = initial.get('date') || '';
 function apply() {
   let count = 0;
   for (const card of document.querySelectorAll('figure[data-platform]')) {
@@ -101,6 +127,10 @@ function apply() {
     section.style.display = shown ? '' : 'none';
   }
   visible.textContent = '显示 ' + count + ' / ${total} 张';
+  const url = new URL(location.href);
+  if (platform.value) url.searchParams.set('platform', platform.value); else url.searchParams.delete('platform');
+  if (date.value) url.searchParams.set('date', date.value); else url.searchParams.delete('date');
+  history.replaceState(null, '', url);
 }
 platform.addEventListener('change', apply);
 date.addEventListener('change', apply);

@@ -214,7 +214,7 @@ jobs:
           E2E_BROWSER_CHANNEL: chromium
           MYSQL_BIN: mysql
           MYSQL_ROOT_PASSWORD: root
-        run: npx playwright test --reporter=list
+        run: npx playwright test
         working-directory: web-admin
       - name: Cleanup E2E data
         if: always()
@@ -252,4 +252,5 @@ jobs:
           path: |
             web-admin/playwright-report
             web-admin/test-results
+
 

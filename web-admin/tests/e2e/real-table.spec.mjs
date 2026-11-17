@@ -39,7 +39,7 @@ test('真实表格内容固定数据截图', async ({ page }) => {
   })
 })
 
-test('真实表格模式覆盖公司/设备/备件/优化/工程师/合同/文档页面', async ({ page }) => {
+test('真实表格模式覆盖公司/设备/备件/优化/工程师/合同/文档/证书/告警规则页面', async ({ page }) => {
   await login(page)
   const cases = [
     {
@@ -76,6 +76,16 @@ test('真实表格模式覆盖公司/设备/备件/优化/工程师/合同/文�
       name: 'document', path: '/app/resource/library', endpoint: /\/api\/crud\/document\/page/,
       record: { docId: 9701, docName: 'E2E固定文档', companyName: 'E2E固定公司', docCategory: '技术文档', version: 'V1.0', status: '0' },
       text: 'E2E固定文档'
+    },
+    {
+      name: 'certificate', path: '/app/staff/people?tab=certificate', endpoint: /\/api\/crud\/certificate\/page/,
+      record: { certId: 9801, certName: 'E2E固定证书', engineerName: 'E2E固定工程师', certNo: 'E2E-CERT', status: '0' },
+      text: 'E2E固定证书'
+    },
+    {
+      name: 'alarmRule', path: '/app/workorder/monitor?tab=rule', endpoint: /\/api\/crud\/alarmRule\/page/,
+      record: { ruleId: 9901, ruleName: 'E2E固定告警规则', companyName: 'E2E固定公司', metric: 'temperature', status: '0' },
+      text: 'E2E固定告警规则'
     }
   ]
   for (const item of cases) {
