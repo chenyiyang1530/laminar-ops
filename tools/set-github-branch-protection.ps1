@@ -33,4 +33,4 @@ $body = @{
 
 $uri = "https://api.github.com/repos/$Owner/$Repo/branches/$Branch/protection"
 Invoke-RestMethod -Method Put -Uri $uri -Headers $headers -Body $body | Out-Null
-Write-Host "已设置 $Owner/$Repo:$Branch 分支保护，required checks: $($Contexts -join ', ')"
+Write-Host "已设置 ${Owner}/${Repo}:${Branch} 分支保护，required checks: $($Contexts -join ', ')"
