@@ -120,18 +120,13 @@ const loading = ref(false)
 const saving = ref(false)
 const accountType = ref('company')
 const accountTypes = computed(() => {
-  const types = [
+  return [
     { value: 'company', label: '公司员工' },
-    { value: 'engineer', label: '工程师' }
+    { value: 'engineer', label: '工程师' },
+    { value: 'hospital_admin', label: '院方管理员' },
+    { value: 'hospital_sub_admin', label: '院方子管理员' },
+    { value: 'hospital_dept', label: '院方科室用户' }
   ]
-  if (!store.companyId) {
-    types.push(
-      { value: 'hospital_admin', label: '院方管理员' },
-      { value: 'hospital_sub_admin', label: '院方子管理员' },
-      { value: 'hospital_dept', label: '院方科室用户' }
-    )
-  }
-  return types
 })
 const isHospitalType = computed(() => ['hospital_admin', 'hospital_sub_admin', 'hospital_dept'].includes(accountType.value))
 const hospitalDepartments = ref([])
@@ -336,8 +331,9 @@ async function submit() {
   if (accountType.value === 'hospital_sub_admin' && !form.hospitalDepartmentId) { ElMessage.warning('院方子管理员请选择所属科室'); return }
   saving.value = true
   try {
-    if (form.userId) await request.put('/system/user', form)
-    else await request.post('/system/user', form)
+    const payload = { ...form, accountType: accountType.value }
+    if (form.userId) await request.put('/system/user', payload)
+    else await request.post('/system/user', payload)
     ElMessage.success('保存成功')
     dialog.value = false
     load()
@@ -383,3 +379,4 @@ onMounted(async () => {
   white-space: nowrap;
 }
 </style>
+

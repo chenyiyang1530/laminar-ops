@@ -23,6 +23,13 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="可分配" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.assignable === '1' ? 'success' : 'info'" size="small">
+              {{ row.assignable === '1' ? '可分配' : '不可分配' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="所属公司" min-width="160">
           <template #default="{ row }">{{ row.companyName || '平台标准' }}</template>
         </el-table-column>
@@ -51,6 +58,9 @@
           <el-select v-model="form.dataScope" style="width: 100%">
             <el-option label="全部数据" value="all" /><el-option label="本区域" value="region" /><el-option label="本医院" value="hospital" /><el-option label="仅本人" value="self" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="可分配">
+          <el-switch v-model="form.assignable" active-value="1" inactive-value="0" />
         </el-form-item>
         <el-form-item label="状态"><el-radio-group v-model="form.status"><el-radio value="0">正常</el-radio><el-radio value="1">停用</el-radio></el-radio-group></el-form-item>
         <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
@@ -166,7 +176,7 @@ function applyPreset(kind) {
   ElMessage.info(kind === 'read' ? '已选择只读权限' : kind === 'edit' ? '已选择编辑权限' : '已选择全部管理权限')
 }
 async function load() { records.value = (await request.get('/system/role/list')).data }
-function openAdd() { Object.keys(form).forEach((k) => delete form[k]); Object.assign(form, { sort: 1, dataScope: 'self', status: '0' }); dialog.value = true }
+function openAdd() { Object.keys(form).forEach((k) => delete form[k]); Object.assign(form, { sort: 1, dataScope: 'self', status: '0', assignable: '1' }); dialog.value = true }
 function openEdit(row) { Object.keys(form).forEach((k) => delete form[k]); Object.assign(form, row); dialog.value = true }
 async function submit() {
   if (!form.roleName || !form.roleKey) { ElMessage.warning('请填写角色名称与权限字符'); return }
