@@ -112,6 +112,9 @@ laminar:
     clamav-command: ${CLAMAV_COMMAND:}
     cleanup-enabled: ${UPLOAD_CLEANUP_ENABLED:false}
     cleanup-retention-days: ${UPLOAD_CLEANUP_DAYS:180}
+  file-check:
+    enabled: ${FILE_CHECK_ENABLED:true}
+    cron: "${FILE_CHECK_CRON:0 30 3 * * *}"
   web:
     admin-dist: ${WEB_ADMIN_DIST:D:/ideaWork/laminar-ops/web-admin/dist}
     portal-dist: ${WEB_PORTAL_DIST:D:/ideaWork/laminar-ops/web-admin/dist-portal}

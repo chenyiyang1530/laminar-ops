@@ -117,3 +117,46 @@ TLS_KEY_ALIAS
 ```
 
 不要提交私钥、P12/JKS 到仓库。
+
+## 上传目录
+
+`UPLOAD_DIR` 是必填部署变量，必须是绝对路径。
+后端启动时会校验：
+
+```text
+不能为空
+必须是绝对路径
+目录必须存在
+目录必须可写
+```
+
+Windows 示例：
+
+```powershell
+New-Item -ItemType Directory -Force D:\laminar-data\upload
+$env:UPLOAD_DIR = "D:/laminar-data/upload"
+```
+
+Linux 示例：
+
+```bash
+sudo mkdir -p /var/lib/laminar-ops/upload
+sudo chown -R laminar:laminar /var/lib/laminar-ops/upload
+export UPLOAD_DIR=/var/lib/laminar-ops/upload
+```
+
+要求：
+
+```text
+上传目录不能放在发布包目录内
+升级发布时不能删除或覆盖上传目录
+备份必须同时备份 UPLOAD_DIR
+运行账号需要读写权限
+```
+
+启动日志会输出校验结果：
+
+```text
+[启动] 上传目录校验通过：...
+```
+
