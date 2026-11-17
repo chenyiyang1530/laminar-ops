@@ -87,7 +87,7 @@ npm run test:integration
 后端 8080
 MySQL/Redis
 Edge 浏览器
-E2E 测试数据使用 company_id=7、hospital_id=11、equipment_id=19
+E2E 测试数据会自动创建，不依赖现有公司/医院/设备
 ```
 
 执行：
@@ -110,3 +110,28 @@ npm run test:e2e
 ```
 
 测试脚本会自动创建和清理 E2E 账号、工程师和工单。
+
+## CI 中的 E2E
+
+`.github/workflows/ci.yml` 的 `e2e` job 会：
+
+```text
+启动 MySQL/Redis 服务
+构建后端和前端
+安装 Playwright Chromium
+启动后端
+自动创建 E2E 公司和测试数据
+执行登录到验收链路
+清理 E2E 数据
+上传 Playwright 报告
+```
+
+测试数据不再写死 `company_id=7`，会自动创建：
+
+```text
+E2E_TEST 公司
+E2E-HOSP 医院
+E2E-AHU 设备
+```
+
+

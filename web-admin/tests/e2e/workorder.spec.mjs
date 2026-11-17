@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const data = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '../../../e2e/.test-data.json'), 'utf8'))
-const companyCode = 'FJASLYLKJ'
+const companyCode = data.companyCode
 const title = data.title
 
 async function loginAdmin(page, username, password = data.password) {

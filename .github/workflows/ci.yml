@@ -130,3 +130,102 @@ jobs:
       - name: Show backend log on failure
         if: failure()
         run: tail -200 backend/app.log
+
+  e2e:
+    name: Frontend E2E login to acceptance
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: laminar_ops
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web-admin/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: web-admin
+      - name: Build frontend
+        run: |
+          npm run build
+          npm run build:portal
+        working-directory: web-admin
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: web-admin
+      - name: Build backend
+        run: mvn -B -DskipTests package
+        working-directory: backend
+      - name: Install MySQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq default-mysql-client
+      - name: Start backend
+        env:
+          DB_URL: jdbc:mysql://127.0.0.1:3306/laminar_ops?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+          DB_USERNAME: root
+          DB_PASSWORD: root
+          JWT_SECRET: github-actions-jwt-secret-please-change-2026
+          CONFIG_SECRET: github-actions-config-secret-please-change-2026
+          FILE_SIGN_SECRET: github-actions-file-secret-please-change-2026
+          MONITOR_TOKEN: github-actions-monitor-token
+          VERIFICATION_DEV_MODE: 'false'
+        run: |
+          nohup java -jar target/laminar-ops-1.0.0.jar > app.log 2>&1 &
+          echo $! > app.pid
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/actuator/health
+        working-directory: backend
+      - name: Run E2E
+        env:
+          E2E_BROWSER_CHANNEL: chromium
+          MYSQL_BIN: mysql
+          MYSQL_ROOT_PASSWORD: root
+        run: npx playwright test --reporter=list
+        working-directory: web-admin
+      - name: Cleanup E2E data
+        if: always()
+        env:
+          MYSQL_BIN: mysql
+          MYSQL_ROOT_PASSWORD: root
+        run: node e2e/cleanup.mjs || true
+      - name: Show backend log on failure
+        if: failure()
+        run: tail -200 backend/app.log
+      - name: Upload E2E report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            web-admin/playwright-report
+            web-admin/test-results
