@@ -230,3 +230,26 @@ ACL 文件包含密码，不要提交仓库
 MySQL root 和管理脚本密码放在 .secrets.local
 ```
 
+
+### 命令行连接
+
+不要使用 `mysql -u laminar_ops`，该账号必须带密码，且主机是 `127.0.0.1`。
+
+推荐使用：
+
+```powershell
+pwsh -NoProfile -File tools\mysql-laminar.ps1
+```
+
+执行查询：
+
+```powershell
+pwsh -NoProfile -File tools\mysql-laminar.ps1 -Query "select current_user();"
+```
+
+手工连接：
+
+```powershell
+mysql -h127.0.0.1 -u laminar_ops -p laminar_ops
+```
+
