@@ -24,6 +24,7 @@ DELETE FROM biz_message WHERE biz_type='workorder' AND biz_id IN
   (SELECT workorder_id FROM biz_workorder WHERE title LIKE 'E2E-%');
 DELETE wl FROM biz_workorder_log wl JOIN biz_workorder w ON w.workorder_id=wl.workorder_id WHERE w.title LIKE 'E2E-%';
 DELETE FROM biz_workorder WHERE title LIKE 'E2E-%';
+DELETE FROM biz_document WHERE doc_name LIKE 'E2E%';
 DELETE FROM biz_hospital_user WHERE user_id IN (SELECT user_id FROM sys_user WHERE username LIKE 'e2e_%');
 DELETE FROM sys_user_role WHERE user_id IN (SELECT user_id FROM sys_user WHERE username LIKE 'e2e_%');
 DELETE FROM biz_engineer WHERE engineer_name='E2E工程师';

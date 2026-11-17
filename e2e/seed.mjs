@@ -34,6 +34,7 @@ DELETE FROM biz_message WHERE biz_type='workorder' AND biz_id IN
   (SELECT workorder_id FROM biz_workorder WHERE title LIKE 'E2E-%');
 DELETE wl FROM biz_workorder_log wl JOIN biz_workorder w ON w.workorder_id=wl.workorder_id WHERE w.title LIKE 'E2E-%';
 DELETE FROM biz_workorder WHERE title LIKE 'E2E-%';
+DELETE FROM biz_document WHERE doc_name LIKE 'E2E%';
 DELETE FROM biz_hospital_user WHERE user_id IN (SELECT user_id FROM sys_user WHERE username LIKE 'e2e_%');
 DELETE FROM sys_user_role WHERE user_id IN (SELECT user_id FROM sys_user WHERE username LIKE 'e2e_%');
 DELETE FROM biz_engineer WHERE engineer_name='E2E工程师';
@@ -104,6 +105,9 @@ VALUES(CONCAT('WO-E2E-A-',DATE_FORMAT(NOW(),'%Y%m%d%H%i%s')),'${title}-A','E2E �
 
 INSERT INTO biz_workorder(workorder_no,title,fault_desc,fault_level,status,source,service_type,hospital_id,department_id,equipment_id,company_id,report_contact,report_phone,create_time)
 VALUES(CONCAT('WO-E2E-B-',DATE_FORMAT(NOW(),'%Y%m%d%H%i%s')),'${title}-B','E2E 科室B工单','2','0','hospital','0',@hospital_id,@dept_b,@equipment_id,@company_id,'E2E','13900009999',NOW());
+
+INSERT INTO biz_document(company_id,doc_name,file_url,upload_time,uploader_name)
+VALUES(@company_id,'E2E文件丢失','company/${companyCode}/document/209901/missing.pdf',NOW(),'E2E');
 
 SELECT CONCAT(@company_id, '|', @hospital_id, '|', @equipment_id, '|', @company_user, '|', @engineer_user, '|', @hospital_user, '|', @subadmin_a, '|', @dept_a, '|', @dept_b);
 `)

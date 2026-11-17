@@ -63,8 +63,12 @@ public class FileController {
         LoginUser user = AuthContext.require();
         String relative = normalize(path);
         Path target = resolve(relative);
-        checkAccess(user, relative, target);
+        checkPermission(user, relative);
         Map<String, Object> result = new LinkedHashMap<>();
+        if (!Files.isRegularFile(target)) {
+            result.put("missing", true);
+            return Result.ok(result);
+        }
         result.put("url", fileSignService.signedUrl(relative));
         result.put("expiresIn", fileSignService.ttlSeconds());
         return Result.ok(result);
@@ -114,9 +118,13 @@ public class FileController {
     }
 
     private void checkAccess(LoginUser user, String relative, Path target) {
+        checkPermission(user, relative);
         if (!Files.isRegularFile(target)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "文件不存在");
         }
+    }
+
+    private void checkPermission(LoginUser user, String relative) {
         if (user.isHospitalUser() && relative.startsWith("company/")) {
             String legacyPath = "/upload/" + relative;
             Integer linked = jdbc.queryForObject(
