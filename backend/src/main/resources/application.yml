@@ -81,6 +81,11 @@ laminar:
     script: ${BACKUP_SCRIPT:D:/ideaWork/laminar-ops/tools/backup.ps1}
     dir: ${BACKUP_DIR:D:/backups/laminar-ops}
     cron: "${BACKUP_CRON:0 0 2 * * *}"
+  redis:
+    monitor-enabled: ${REDIS_MONITOR_ENABLED:true}
+    data-dir: ${REDIS_DATA_DIR:D:/ideaWork/redis8-service/data}
+    memory-warning-percent: ${REDIS_MEMORY_WARN:80}
+    disk-warning-percent: ${REDIS_DISK_WARN:85}
   archive:
     retention-months: 6
   leave:

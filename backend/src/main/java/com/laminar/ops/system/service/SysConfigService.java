@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.time.Duration;
 
 /**
  * 读取 sys_config 中的系统参数；参数不存在或表未初始化时使用代码默认值。
@@ -57,6 +58,7 @@ public class SysConfigService {
     private void bumpVersion() {
         try {
             redis.opsForValue().increment(VERSION_KEY);
+            redis.expire(VERSION_KEY, Duration.ofDays(30));
         } catch (Exception ignored) {
             // Redis 不可用时仅失效本机缓存
         }

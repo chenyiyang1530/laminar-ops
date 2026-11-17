@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -63,6 +64,7 @@ public class MonitorService {
             String field = String.valueOf(pointId);
             String payload = value + "|" + now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             redis.opsForHash().put("monitor:latest:" + equipmentId, field, payload);
+            redis.expire("monitor:latest:" + equipmentId, Duration.ofHours(24));
 
             EvalResult eval = evaluateAndRaise(p, value, rulesFor(p, rules));
             alarms += eval.raised();
@@ -286,6 +288,7 @@ public class MonitorService {
         Long pointId = ((Number) p.get("point_id")).longValue();
         String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         redis.opsForHash().put("monitor:latest:" + equipmentId, String.valueOf(pointId), value + "|" + ts);
+        redis.expire("monitor:latest:" + equipmentId, Duration.ofHours(24));
         jdbc.update("update biz_equipment set last_heartbeat=now(), monitor_status='1' where equipment_id=?", equipmentId);
         alarmService.recoverOffline(equipmentId);
 

@@ -152,8 +152,8 @@ REDIS_PASSWORD
 配置：
 
 ```conf
-maxmemory 512mb
-maxmemory-policy allkeys-lru
+maxmemory 1gb
+maxmemory-policy volatile-lru
 maxmemory-samples 5
 ```
 
@@ -175,8 +175,8 @@ redis-cli -p 6380 --user laminar_ops --pass $env:REDIS_PASSWORD `
 当前值：
 
 ```text
-maxmemory = 536870912
-maxmemory-policy = allkeys-lru
+maxmemory = 1073741824
+maxmemory-policy = volatile-lru
 ```
 
 生产建议：
@@ -186,6 +186,41 @@ maxmemory-policy = allkeys-lru
 不要超过服务器可用内存的 50%
 ```
 
+本机通过 .NET 读取到总可用内存约 31.8GB，当前设置为 1GB。
+
+## AOF 重写
+
+```conf
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-use-rdb-preamble yes
+```
+
+AOF 增长到基准大小 100% 且超过 64MB 时自动重写。
+
+## 监控告警
+
+后端 `RedisMonitorJob` 每 5 分钟检查：
+
+```text
+Redis 内存使用率
+Redis 数据盘使用率
+```
+
+配置：
+
+```yaml
+laminar:
+  redis:
+    monitor-enabled: true
+    data-dir: D:/ideaWork/redis8-service/data
+    memory-warning-percent: 80
+    disk-warning-percent: 85
+```
+
+超过阈值写入超级管理员站内消息。
+
+
 
 ## 注意
 
@@ -194,3 +229,4 @@ Redis 8 是第三方 Windows 构建，生产建议 Linux 原生 Redis 7/8
 ACL 文件包含密码，不要提交仓库
 MySQL root 和管理脚本密码放在 .secrets.local
 ```
+
