@@ -81,22 +81,31 @@ test('24 个 CRUD 资源新增、编辑、删除', async ({ request }) => {
 
       const createPayload = await build(resource, meta, nameField)
       const created = await request.post(`/api/crud/${resource}`, { headers, data: createPayload })
-      if (!created.ok()) throw new Error(`create ${created.status()} ${await created.text()}`)
+      if (!created.ok()) throw new Error(`create ${created.status()} ${await created.text()} payload=${JSON.stringify(createPayload)}`)
       const createdBody = await created.json()
-      if (createdBody.code !== 200 || !createdBody.data) throw new Error(`create code ${createdBody.code}`)
+      if (createdBody.code !== 200 || !createdBody.data) {
+        throw new Error(`create code ${createdBody.code} msg=${createdBody.msg} payload=${JSON.stringify(createPayload)}`)
+      }
       const id = createdBody.data
 
       const updateValue = `${createPayload[nameField] || 'E2E'}_EDIT`
+      const updatePayload = { [meta.pk]: id, [nameField]: updateValue }
       const updated = await request.put(`/api/crud/${resource}`, {
-        headers, data: { [meta.pk]: id, [nameField]: updateValue }
+        headers, data: updatePayload
       })
-      if (!updated.ok() || (await updated.json()).code !== 200) throw new Error(`update ${updated.status()}`)
+      const updatedBody = await updated.json()
+      if (!updated.ok() || updatedBody.code !== 200) {
+        throw new Error(`update ${updated.status()} payload=${JSON.stringify(updatePayload)} body=${JSON.stringify(updatedBody)}`)
+      }
 
       const detail = await request.get(`/api/crud/${resource}/${id}`, { headers })
-      if (!detail.ok() || (await detail.json()).code !== 200) throw new Error(`get ${detail.status()}`)
+      if (!detail.ok() || (await detail.json()).code !== 200) throw new Error(`get ${detail.status()} id=${id}`)
 
       const deleted = await request.delete(`/api/crud/${resource}/${id}`, { headers })
-      if (!deleted.ok() || (await deleted.json()).code !== 200) throw new Error(`delete ${deleted.status()}`)
+      const deletedBody = await deleted.json()
+      if (!deleted.ok() || deletedBody.code !== 200) {
+        throw new Error(`delete ${deleted.status()} id=${id} body=${JSON.stringify(deletedBody)}`)
+      }
     } catch (e) {
       failures.push(`${resource}: ${e.message}`)
     }

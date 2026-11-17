@@ -155,3 +155,43 @@ E2E-AHU 设备
 
 
 
+
+## 分支保护 required check
+
+E2E job 名称：
+
+```text
+Frontend E2E login to acceptance
+```
+
+设置脚本：
+
+```powershell
+$env:GITHUB_TOKEN="ghp_..."
+pwsh -NoProfile -File tools\set-github-branch-protection.ps1
+```
+
+然后在 GitHub 分支保护中确认：
+
+```text
+main → Require status checks to pass
+Frontend E2E login to acceptance
+```
+
+## 管理页面截图模式
+
+默认模式遮罩表格，保证动态数据不影响基线。
+真实表格内容模式：
+
+```bash
+REAL_TABLE_MODE=1 npx playwright test tests/e2e/all-management.spec.mjs --update-snapshots
+```
+
+真实模式基线文件名带 `-real`，建议在固定测试数据下生成。
+
+移动端管理页面：
+
+```bash
+npx playwright test tests/e2e/all-management-mobile.spec.mjs --update-snapshots
+```
+

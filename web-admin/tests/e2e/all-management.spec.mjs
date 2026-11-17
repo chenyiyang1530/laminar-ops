@@ -30,6 +30,7 @@ test('所有管理页面可打开且无接口错误', async ({ page }) => {
 
   const failures = []
   const errors = []
+  const realTables = process.env.REAL_TABLE_MODE === '1'
   page.on('pageerror', (e) => errors.push(e.message))
   page.on('response', (res) => {
     if (res.url().includes('/api/') && res.status() >= 400) {
@@ -45,19 +46,22 @@ test('所有管理页面可打开且无接口错误', async ({ page }) => {
       failures.push(`页面异常：${route.name} ${route.path}`)
     }
     const slug = route.path.replace(/^\//, '').replace(/[^a-zA-Z0-9]+/g, '-')
-    await expect(page).toHaveScreenshot(`management-${slug}.png`, {
+    const masks = realTables
+      ? [page.locator('.page-card canvas'), page.locator('.page-card .trend-box'), page.locator('.page-card .el-alert')]
+      : [
+          page.locator('.page-card .el-table'),
+          page.locator('.page-card .el-pagination'),
+          page.locator('.page-card canvas'),
+          page.locator('.page-card .trend-box'),
+          page.locator('.page-card .el-alert')
+        ]
+    await expect(page).toHaveScreenshot(`management-${slug}${realTables ? '-real' : ''}.png`, {
       fullPage: false,
       animations: 'disabled',
       caret: 'hide',
       maxDiffPixelRatio: 0.05,
       maskColor: '#f5f7fa',
-      mask: [
-        page.locator('.page-card .el-table'),
-        page.locator('.page-card .el-pagination'),
-        page.locator('.page-card canvas'),
-        page.locator('.page-card .trend-box'),
-        page.locator('.page-card .el-alert')
-      ]
+      mask: masks
     })
   }
 
