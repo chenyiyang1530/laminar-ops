@@ -190,3 +190,28 @@ FILE_CHECK_CRON=0 30 3 * * *
 POST /api/system/file-check/run
 ```
 
+
+### 文件巡检报告
+
+管理端路径：系统管理 → 文件巡检。
+
+页面包含：
+
+```text
+巡检记录：每次运行的检查数、丢失数、恢复数、状态、时间
+丢失文件：按表/记录/字段列出，支持筛选和重新上传
+```
+
+后端接口：
+
+```text
+POST /api/system/file-check/run
+GET  /api/system/file-check/runs
+GET  /api/system/file-check/items
+POST /api/system/file-check/items/{id}/recover
+```
+
+巡检使用 4 个线程、每批 500 条分批扫描，避免大表一次性加载。
+巡检结果写入 `sys_file_check_run` 和 `sys_file_check_item`，保留历史。
+重新上传成功后立即把巡检项标记为已恢复；下一轮巡检会自动修正状态。
+
