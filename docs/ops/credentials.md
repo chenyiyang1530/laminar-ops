@@ -43,7 +43,7 @@ cleanup-test-data.ps1
 ACL 文件：
 
 ```text
-D:\ideaWork\redis8\Redis-8.10.3-Windows-x64-msys2\users.acl
+D:\ideaWork\redis8-service\Redis-8.10.3-Windows-x64-msys2-with-Service\users.acl
 ```
 
 用户：
@@ -53,6 +53,31 @@ laminar_ops
 ```
 
 默认用户关闭，只允许 ACL 用户认证。
+
+### 服务安装
+
+服务安装需要管理员 PowerShell：
+
+```powershell
+cd D:\ideaWork\redis8-service\Redis-8.10.3-Windows-x64-msys2-with-Service
+.\RedisService.exe install `
+  -c .\redis-laminar.conf `
+  --dir D:\ideaWork\redis8-service\data `
+  --port 6380 `
+  --service-name Redis8 `
+  --start-mode auto
+Start-Service Redis8
+```
+
+也可以运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File `
+  D:\ideaWork\laminar-ops\tools\install-redis8-service-elevated.ps1
+```
+
+当前若服务未安装，Redis 以前台进程运行在 6380。
+
 
 Spring 配置：
 
