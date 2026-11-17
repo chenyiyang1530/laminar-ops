@@ -130,6 +130,8 @@ laminar:
     sla-cron: "${FILE_CHECK_SLA_CRON:0 */10 * * * *}"
     batch-size: ${FILE_CHECK_BATCH_SIZE:500}
     threads: ${FILE_CHECK_THREADS:4}
+    sla-level2-hours: ${FILE_CHECK_SLA_LEVEL2_HOURS:24}
+    sla-level3-hours: ${FILE_CHECK_SLA_LEVEL3_HOURS:72}
     email-enabled: ${FILE_CHECK_EMAIL_ENABLED:false}
     email-to: ${FILE_CHECK_EMAIL_TO:}
     type-severity:

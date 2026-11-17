@@ -51,17 +51,31 @@ public class FileCheckService {
     );
 
     private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
+    private static final String LOCK_OWNER = java.util.UUID.randomUUID().toString();
 
     private final JdbcTemplate jdbc;
     private final SystemAlertService systemAlertService;
     private final FileCheckProperties properties;
     private final MailNotificationService mailNotificationService;
+    private final FileCheckRecipientService recipientService;
+    private final FileCheckExportService exportService;
 
     @Value("${laminar.upload.path:}")
     private String uploadPath;
 
     public Map<String, Object> run(String triggerType) {
         if (!RUNNING.compareAndSet(false, true)) {
+            return Map.of("status", "running");
+        }
+        Integer lock;
+        try {
+            lock = acquireLock() ? 1 : 0;
+        } catch (Exception e) {
+            RUNNING.set(false);
+            throw new BizException(500, "无法获取巡检任务锁：" + e.getMessage());
+        }
+        if (lock != 1) {
+            RUNNING.set(false);
             return Map.of("status", "running");
         }
         long runId = findResumableRun();
@@ -97,6 +111,7 @@ public class FileCheckService {
             result.put("missing", missing.size());
             result.put("recovered", recovered);
             result.put("elapsedMs", System.currentTimeMillis() - start);
+            sendMissingEmails(missing);
             return result;
         } catch (Exception e) {
             String message = e.getMessage() == null ? "unknown" : e.getMessage();
@@ -107,6 +122,10 @@ public class FileCheckService {
             throw new BizException(500, "文件巡检失败：" + message);
         } finally {
             RUNNING.set(false);
+            try {
+                jdbc.update("delete from sys_file_check_lock where lock_name='file_check_run' and owner=?", LOCK_OWNER);
+            } catch (Exception ignored) {
+            }
         }
     }
 
@@ -144,7 +163,7 @@ public class FileCheckService {
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "select i.item_id as itemId, i.run_id as runId, i.table_name as tableName, i.record_id as recordId, " +
                         "i.file_column as fileColumn, i.file_path as filePath, i.file_type as fileType, i.severity, " +
-                        "i.sla_hours as slaHours, i.sla_deadline as slaDeadline, " +
+                        "i.sla_hours as slaHours, i.sla_deadline as slaDeadline, i.escalation_level as escalationLevel, " +
                         "i.company_id as companyId, i.hospital_id as hospitalId, i.status, " +
                         "i.first_seen as firstSeen, i.last_seen as lastSeen, i.resolved_time as resolvedTime, " +
                         "c.company_name as companyName, h.hospital_name as hospitalName " +
@@ -163,37 +182,42 @@ public class FileCheckService {
                 companyId, hospitalId, fileType, severity, null).get("records");
     }
 
-    public List<Map<String, Object>> trend(int days, Long companyId, Long hospitalId) {
+    public List<Map<String, Object>> trend(int days, Long companyId, Long hospitalId, String granularity) {
         int span = Math.max(1, Math.min(days, 365));
+        String mode = granularity == null ? "day" : granularity.toLowerCase();
+        String format = "month".equals(mode) ? "%Y-%m" : "week".equals(mode) ? "%x-W%v" : "%Y-%m-%d";
+        String group = "date_format(first_seen,'" + format + "')";
+        String resolvedGroup = "date_format(resolved_time,'" + format + "')";
         LocalDate start = LocalDate.now().minusDays(span - 1L);
         Map<String, long[]> data = new LinkedHashMap<>();
-        for (int i = 0; i < span; i++) {
-            data.put(start.plusDays(i).format(DateTimeFormatter.ISO_DATE), new long[]{0, 0});
+        if ("day".equals(mode)) {
+            for (int i = 0; i < span; i++) {
+                data.put(start.plusDays(i).format(DateTimeFormatter.ISO_DATE), new long[]{0, 0});
+            }
         }
         List<Object> args = new ArrayList<>();
         args.add(start);
         StringBuilder scope = new StringBuilder();
         if (companyId != null) { scope.append(" and company_id=?"); args.add(companyId); }
         if (hospitalId != null) { scope.append(" and hospital_id=?"); args.add(hospitalId); }
-        jdbc.queryForList("select date(first_seen) d, count(*) c from sys_file_check_item " +
-                        "where first_seen>=?" + scope + " group by date(first_seen)", args.toArray())
+        jdbc.queryForList("select " + group + " d, count(*) c from sys_file_check_item " +
+                        "where first_seen>=?" + scope + " group by " + group, args.toArray())
                 .forEach(row -> {
-                    String day = String.valueOf(row.get("d"));
-                    if (data.containsKey(day)) data.get(day)[0] = ((Number) row.get("c")).longValue();
+                    String key = String.valueOf(row.get("d"));
+                    data.computeIfAbsent(key, k -> new long[]{0, 0})[0] = ((Number) row.get("c")).longValue();
                 });
-        List<Object> resolvedArgs = new ArrayList<>(args);
-        jdbc.queryForList("select date(resolved_time) d, count(*) c from sys_file_check_item " +
-                        "where resolved_time is not null and resolved_time>=?" + scope + " group by date(resolved_time)", resolvedArgs.toArray())
+        jdbc.queryForList("select " + resolvedGroup + " d, count(*) c from sys_file_check_item " +
+                        "where resolved_time is not null and resolved_time>=?" + scope + " group by " + resolvedGroup, args.toArray())
                 .forEach(row -> {
-                    String day = String.valueOf(row.get("d"));
-                    if (data.containsKey(day)) data.get(day)[1] = ((Number) row.get("c")).longValue();
+                    String key = String.valueOf(row.get("d"));
+                    data.computeIfAbsent(key, k -> new long[]{0, 0})[1] = ((Number) row.get("c")).longValue();
                 });
         List<Map<String, Object>> result = new ArrayList<>();
-        data.forEach((day, counts) -> {
+        data.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("date", day);
-            item.put("missing", counts[0]);
-            item.put("recovered", counts[1]);
+            item.put("date", entry.getKey());
+            item.put("missing", entry.getValue()[0]);
+            item.put("recovered", entry.getValue()[1]);
             result.add(item);
         });
         return result;
@@ -229,6 +253,48 @@ public class FileCheckService {
         result.put("filePath", relative);
         result.put("status", "1");
         return result;
+    }
+
+    private void sendMissingEmails(List<Missing> missing) {
+        if (missing.isEmpty() || !mailNotificationService.isEnabled()) return;
+        byte[] attachment = exportService.excel(exportRows("0", null, null, null, null, null));
+        Map<String, List<Missing>> groups = missing.stream().collect(Collectors.groupingBy(m ->
+                (m.context().companyId() == null ? "-" : m.context().companyId()) + "|" +
+                        (m.context().hospitalId() == null ? "-" : m.context().hospitalId())));
+        boolean sent = false;
+        for (List<Missing> group : groups.values()) {
+            Missing first = group.get(0);
+            List<String> emails = recipientService.emails(first.context().companyId(), first.context().hospitalId());
+            if (emails.isEmpty()) continue;
+            sent = true;
+            String subject = "文件巡检发现 " + group.size() + " 个文件丢失";
+            mailNotificationService.sendHtml(emails, subject, htmlReport(group), attachment, "file-check.xlsx");
+        }
+        if (!sent) {
+            mailNotificationService.sendHtml(null, "文件巡检发现 " + missing.size() + " 个文件丢失",
+                    htmlReport(missing), attachment, "file-check.xlsx");
+        }
+    }
+
+    private String htmlReport(List<Missing> rows) {
+        StringBuilder html = new StringBuilder("<div style=\"font-family:Arial,sans-serif\">");
+        html.append("<h3 style=\"color:#c0392b\">文件巡检报告</h3>");
+        html.append("<p>共发现 <b>").append(rows.size()).append("</b> 个文件丢失，请登录系统管理-文件巡检处理。</p>");
+        html.append("<table border=\"1\" cellspacing=\"0\" cellpadding=\"6\" style=\"border-collapse:collapse;font-size:12px\">");
+        html.append("<tr><th>等级</th><th>表</th><th>记录</th><th>类型</th><th>路径</th></tr>");
+        for (Missing row : rows.stream().limit(30).toList()) {
+            html.append("<tr><td>").append(escape(row.severity()))
+                    .append("</td><td>").append(escape(row.ref().table()))
+                    .append("</td><td>").append(row.recordId())
+                    .append("</td><td>").append(escape(row.fileType()))
+                    .append("</td><td>").append(escape(row.path())).append("</td></tr>");
+        }
+        html.append("</table><p>完整明细见附件。</p></div>");
+        return html.toString();
+    }
+
+    private String escape(String value) {
+        return value == null ? "" : value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private ScanResult scanAll(Path root, long runId) throws Exception {
@@ -308,7 +374,7 @@ public class FileCheckService {
     private Long upsertMissing(long runId, Missing m) {
         int updated = jdbc.update("update sys_file_check_item set run_id=?, file_path=?, file_type=?, severity=?, " +
                         "sla_hours=?, company_id=?, hospital_id=?, last_seen=now(), status='0', resolved_time=null, " +
-                        "escalated='0', escalated_time=null, " +
+                        "escalated='0', escalated_time=null, escalation_level=0, last_escalation_time=null, " +
                         "sla_deadline=case when status='1' or sla_deadline is null then date_add(now(), interval ? hour) else sla_deadline end, " +
                         "first_seen=case when status='1' then now() else first_seen end " +
                         "where table_name=? and record_id=? and file_column=?",
@@ -363,6 +429,15 @@ public class FileCheckService {
         List<Long> rows = jdbc.queryForList(
                 "select run_id from sys_file_check_run where status='running' order by run_id desc limit 1", Long.class);
         return rows.isEmpty() ? 0 : rows.get(0);
+    }
+
+    private boolean acquireLock() {
+        int updated = jdbc.update("update sys_file_check_lock set owner=?, locked_at=now() " +
+                "where lock_name='file_check_run' and locked_at < date_sub(now(), interval 2 hour)", LOCK_OWNER);
+        if (updated == 1) return true;
+        int inserted = jdbc.update("insert ignore into sys_file_check_lock(lock_name,owner,locked_at) " +
+                "values('file_check_run',?,now())", LOCK_OWNER);
+        return inserted == 1;
     }
 
     private void notifyGroups(long runId, List<Missing> missing, Map<String, Long> itemIds) {

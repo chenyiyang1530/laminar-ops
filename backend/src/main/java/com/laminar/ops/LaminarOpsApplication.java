@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.env.Environment;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
@@ -14,6 +15,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @Slf4j
 @SpringBootApplication
+@EnableAsync
 @EnableScheduling
 @MapperScan("com.laminar.ops.**.mapper")
 public class LaminarOpsApplication {
@@ -38,3 +40,4 @@ public class LaminarOpsApplication {
         log.info("==========================================================");
     }
 }
+

@@ -15,7 +15,14 @@
       </div>
 
       <div class="trend-box">
-        <div class="trend-head">最近 30 天趋势</div>
+        <div class="trend-head">
+          最近 30 天趋势
+          <el-radio-group v-model="trendMode" size="small" style="margin-left: 12px" @change="loadTrend">
+            <el-radio-button value="day">日</el-radio-button>
+            <el-radio-button value="week">周</el-radio-button>
+            <el-radio-button value="month">月</el-radio-button>
+          </el-radio-group>
+        </div>
         <EChart :option="trendOption" height="220px" />
       </div>
 
@@ -124,6 +131,26 @@
             <el-pagination v-model:current-page="itemPage" :page-size="itemSize" :total="itemTotal" layout="total, prev, pager, next" @current-change="loadItems" />
           </div>
         </el-tab-pane>
+
+        <el-tab-pane label="邮件收件人" name="recipients">
+          <div class="recipient-tools">
+            <el-button type="primary" :disabled="!canEdit" @click="openRecipient()">新增收件人</el-button>
+          </div>
+          <el-table v-loading="recipientLoading" :data="recipients" stripe>
+            <el-table-column prop="companyName" label="公司" min-width="180" />
+            <el-table-column prop="hospitalName" label="医院" min-width="180" />
+            <el-table-column prop="email" label="邮箱" min-width="220" />
+            <el-table-column prop="enabled" label="启用" width="90">
+              <template #default="{ row }">{{ row.enabled === '1' ? '是' : '否' }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="130">
+              <template #default="{ row }">
+                <el-button link type="primary" :disabled="!canEdit" @click="openRecipient(row)">编辑</el-button>
+                <el-button link type="danger" :disabled="!canEdit" @click="removeRecipient(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
       </el-tabs>
     </div>
 
@@ -161,12 +188,36 @@
         </el-button>
       </template>
     </el-dialog>
+    <el-dialog v-model="recipientVisible" :title="recipientForm.recipientId ? '编辑收件人' : '新增收件人'" width="520px">
+      <el-form label-width="90px">
+        <el-form-item label="公司">
+          <el-select v-model="recipientForm.companyId" clearable filterable placeholder="可选" style="width: 100%">
+            <el-option v-for="c in companies" :key="c.value" :label="c.label" :value="c.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="医院">
+          <el-select v-model="recipientForm.hospitalId" clearable filterable placeholder="可选" style="width: 100%">
+            <el-option v-for="h in hospitals" :key="h.value" :label="h.label" :value="h.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="邮箱">
+          <el-input v-model="recipientForm.email" placeholder="ops@example.com" />
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="recipientForm.enabled" active-value="1" inactive-value="0" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="recipientVisible = false">取消</el-button>
+        <el-button type="primary" :loading="recipientSaving" @click="saveRecipient">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
 import FileUpload from '@/components/FileUpload.vue'
 import EChart from '@/components/EChart.vue'
@@ -179,6 +230,7 @@ const canRun = computed(() => store.hasPerm('system:filecheck:run'))
 const canEdit = computed(() => store.hasPerm('system:filecheck:edit'))
 
 const active = ref('runs')
+const trendMode = ref('day')
 const running = ref(false)
 const runLoading = ref(false)
 const runs = ref([])
@@ -205,6 +257,11 @@ const batchVisible = ref(false)
 const batchRows = ref([])
 const batchFailures = ref([])
 const batchSaving = ref(false)
+const recipients = ref([])
+const recipientLoading = ref(false)
+const recipientVisible = ref(false)
+const recipientSaving = ref(false)
+const recipientForm = reactive({ recipientId: undefined, companyId: undefined, hospitalId: undefined, email: '', enabled: '1' })
 
 const trendOption = computed(() => ({
   tooltip: { trigger: 'axis' },
@@ -225,7 +282,7 @@ function isOverdue(row) {
 async function loadTrend() {
   try {
     const res = await request.get('/system/file-check/trend', {
-      params: { days: 30, companyId: filters.companyId, hospitalId: filters.hospitalId }
+      params: { days: 30, companyId: filters.companyId, hospitalId: filters.hospitalId, granularity: trendMode.value }
     })
     trend.value = res.data || []
   } catch {
@@ -286,6 +343,7 @@ function resetItems() {
 
 function onTabChange(name) {
   if (name === 'items') loadItems()
+  if (name === 'recipients') loadRecipients()
 }
 
 function onSelection(rows) {
@@ -354,37 +412,42 @@ async function submitBatch() {
   }
   batchSaving.value = true
   try {
-    let ok = 0
-    const failed = []
-    for (const row of ready) {
-      try {
-        await request.post(`/system/file-check/items/${row.itemId}/recover`, { fileUrl: row.recoverFile })
-        row.batchOk = true
-        row.batchError = ''
-        ok++
-      } catch (e) {
-        row.batchOk = false
-        row.batchError = e?.response?.data?.msg || e?.message || '恢复失败'
-        failed.push(row)
-      }
-    }
-    batchFailures.value = failed
-    if (failed.length) {
-      ElMessage.warning(`成功 ${ok} 个，失败 ${failed.length} 个，可重试失败项`)
-      await loadAll()
-    } else {
-      ElMessage.success(`已恢复 ${ok} 个文件`)
+    const res = await request.post('/system/file-check/items/batch-recover', ready.map((row) => ({
+      itemId: String(row.itemId),
+      fileUrl: row.recoverFile
+    })))
+    const job = await pollJob(res.data.jobId)
+    if (job.status === 'success') {
+      ElMessage.success(job.message || '批量恢复完成')
       batchVisible.value = false
       await loadAll()
+      return
     }
+    ElMessage.warning(job.message || '部分文件恢复失败')
+    const ids = String(job.message || '').match(/失败ID=([^；]+)/)?.[1]?.split(',') || []
+    batchFailures.value = batchRows.value.filter((row) => ids.includes(String(row.itemId)))
+    batchRows.value = batchFailures.value
+    await loadAll()
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.msg || '批量恢复任务提交失败')
   } finally {
     batchSaving.value = false
   }
 }
 
+async function pollJob(jobId) {
+  for (let i = 0; i < 120; i++) {
+    const res = await request.get(`/system/file-check/jobs/${jobId}`)
+    const job = res.data
+    if (job.status !== 'running') return job
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  throw new Error('任务超时')
+}
+
 async function exportFile(format) {
   try {
-    const res = await request.get('/system/file-check/export', {
+    const res = await request.post('/system/file-check/export-async', null, {
       params: {
         format,
         status: filters.status,
@@ -393,18 +456,64 @@ async function exportFile(format) {
         hospitalId: filters.hospitalId,
         fileType: filters.fileType,
         severity: filters.severity
-      },
-      responseType: 'blob'
+      }
     })
-    const blob = new Blob([res.data], { type: format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    ElMessage.info('导出任务已提交，正在生成...')
+    const job = await pollJob(res.data.jobId)
+    if (job.status !== 'success') throw new Error(job.message || '导出失败')
+    const file = await request.get(`/system/file-check/jobs/${res.data.jobId}/download`, { responseType: 'blob' })
+    const blob = new Blob([file.data], { type: format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
     link.download = `file-check-${new Date().toISOString().slice(0, 10)}.${format}`
     link.click()
     URL.revokeObjectURL(link.href)
-  } catch {
-    ElMessage.error('导出失败')
+    ElMessage.success('导出完成')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.msg || '导出失败')
   }
+}
+
+async function loadRecipients() {
+  recipientLoading.value = true
+  try {
+    const res = await request.get('/system/file-check/recipients')
+    recipients.value = res.data || []
+  } finally {
+    recipientLoading.value = false
+  }
+}
+
+function openRecipient(row) {
+  recipientForm.recipientId = row?.recipientId
+  recipientForm.companyId = row?.companyId || undefined
+  recipientForm.hospitalId = row?.hospitalId || undefined
+  recipientForm.email = row?.email || ''
+  recipientForm.enabled = row?.enabled || '1'
+  recipientVisible.value = true
+}
+
+async function saveRecipient() {
+  if (!recipientForm.companyId && !recipientForm.hospitalId) {
+    ElMessage.warning('公司或医院至少选择一个')
+    return
+  }
+  recipientSaving.value = true
+  try {
+    await request.post('/system/file-check/recipients', recipientForm)
+    ElMessage.success('收件人已保存')
+    recipientVisible.value = false
+    await loadRecipients()
+  } finally {
+    recipientSaving.value = false
+  }
+}
+
+async function removeRecipient(row) {
+  await ElMessageBox.confirm(`删除收件人 ${row.email}？`, '提示', { type: 'warning' })
+  await request.delete(`/system/file-check/recipients/${row.recipientId}`)
+  ElMessage.success('已删除')
+  await loadRecipients()
 }
 
 onMounted(async () => {

@@ -291,3 +291,48 @@ laminar.file-check.sla-hours:
   P3: 168
 ```
 
+
+### 文件巡检多实例和异步任务
+
+多实例互斥锁：
+
+```text
+sys_file_check_lock
+锁超时 2 小时，避免实例崩溃后永久锁死
+```
+
+异步接口：
+
+```text
+POST /api/system/file-check/items/batch-recover
+GET  /api/system/file-check/jobs/{id}
+GET  /api/system/file-check/jobs/{id}/download
+POST /api/system/file-check/export-async
+```
+
+SLA 级别：
+
+```text
+L1：到达 SLA 截止时间
+L2：超过 24 小时
+L3：超过 72 小时
+```
+
+可通过：
+
+```text
+FILE_CHECK_SLA_LEVEL2_HOURS=24
+FILE_CHECK_SLA_LEVEL3_HOURS=72
+```
+
+调整。
+
+收件人：
+
+```text
+系统管理 → 文件巡检 → 邮件收件人
+按公司或医院配置邮箱
+```
+
+趋势支持日/周/月聚合。
+

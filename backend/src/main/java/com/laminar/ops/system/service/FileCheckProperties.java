@@ -28,4 +28,6 @@ public class FileCheckProperties {
     ));
     private boolean emailEnabled = false;
     private String emailTo = "";
+    private int slaLevel2Hours = 24;
+    private int slaLevel3Hours = 72;
 }
