@@ -23,7 +23,7 @@ if (-not $cfg['DB_PASSWORD']) { throw "缺少 DB_PASSWORD" }
 $env:DB_URL = "jdbc:mysql://127.0.0.1:3306/laminar_ops?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
 $env:DB_USERNAME = $cfg['DB_USERNAME']
 $env:DB_PASSWORD = $cfg['DB_PASSWORD']
-foreach ($key in @('REDIS_HOST','REDIS_PORT','REDIS_USERNAME','REDIS_PASSWORD','JWT_SECRET','CONFIG_SECRET','FILE_SIGN_SECRET','MONITOR_TOKEN')) {
+foreach ($key in @('UPLOAD_DIR','REDIS_HOST','REDIS_PORT','REDIS_USERNAME','REDIS_PASSWORD','JWT_SECRET','CONFIG_SECRET','FILE_SIGN_SECRET','MONITOR_TOKEN')) {
   if ($cfg[$key]) { Set-Item -Path "Env:$key" -Value $cfg[$key] }
 }
 

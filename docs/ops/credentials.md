@@ -253,3 +253,18 @@ pwsh -NoProfile -File tools\mysql-laminar.ps1 -Query "select current_user();"
 mysql -h127.0.0.1 -u laminar_ops -p laminar_ops
 ```
 
+
+### 文件存储目录
+
+必须使用绝对路径，避免从项目根目录启动时把 `./upload` 解析到错误位置：
+
+```text
+UPLOAD_DIR=D:/ideaWork/laminar-ops/backend/upload
+```
+
+当前实际文件目录：
+
+```text
+D:\ideaWork\laminar-ops\backend\upload
+```
+
