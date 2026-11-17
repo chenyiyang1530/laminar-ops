@@ -70,7 +70,7 @@ jobs:
           FILE_SIGN_SECRET: visual-baseline-file-secret
           UPLOAD_DIR: ${{ github.workspace }}/upload
         run: |
-          mkdir -p upload
+          mkdir -p upload ../upload
           nohup java -jar target/laminar-ops-1.0.0.jar > app.log 2>&1 &
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null; then break; fi
@@ -97,4 +97,5 @@ jobs:
             git commit -m "test: add Linux visual baselines"
             git push
           fi
+
 
