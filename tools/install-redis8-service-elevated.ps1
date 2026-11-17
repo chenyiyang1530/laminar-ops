@@ -15,6 +15,8 @@ try {
   & (Join-Path $dir "RedisService.exe") install -c $conf --dir $data --port 6380 --service-name Redis8 --start-mode auto *> $log
   if ($LASTEXITCODE -ne 0) { throw "RedisService install 失败，退出码 $LASTEXITCODE，详见 $log" }
   Start-Service Redis8
+  sc.exe failure Redis8 reset= 86400 actions= restart/5000/restart/10000/restart/30000 *>> $log
+  sc.exe config Redis8 start= auto *>> $log
   Start-Sleep -Seconds 3
   $svc = Get-Service Redis8
   Add-Content $log "SERVICE=$($svc.Name) STATUS=$($svc.Status) STARTTYPE=$($svc.StartType)"

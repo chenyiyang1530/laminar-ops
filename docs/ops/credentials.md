@@ -78,6 +78,51 @@ powershell -ExecutionPolicy Bypass -File `
 
 当前若服务未安装，Redis 以前台进程运行在 6380。
 
+### 服务日志与自动重启
+
+Redis 日志：
+
+```text
+D:\ideaWork\redis8-service\redis.log
+```
+
+配置文件：
+
+```text
+logfile D:/ideaWork/redis8-service/redis.log
+loglevel notice
+```
+
+服务安装后执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File `
+  D:\ideaWork\laminar-ops\tools\configure-redis8-recovery.ps1
+```
+
+恢复策略：
+
+```text
+第一次失败：5 秒后重启
+第二次失败：10 秒后重启
+后续失败：30 秒后重启
+24 小时重置计数
+```
+
+服务未安装时可运行前台看护：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File `
+  D:\ideaWork\laminar-ops\tools\redis8-watchdog.ps1
+```
+
+看护日志：
+
+```text
+D:\ideaWork\redis8-service\watchdog.log
+```
+
+
 
 Spring 配置：
 
