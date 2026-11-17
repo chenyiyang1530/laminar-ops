@@ -44,6 +44,20 @@ test('所有管理页面可打开且无接口错误', async ({ page }) => {
     if (body.includes('系统异常') || body.includes('页面不存在')) {
       failures.push(`页面异常：${route.name} ${route.path}`)
     }
+    const slug = route.path.replace(/^\//, '').replace(/[^a-zA-Z0-9]+/g, '-')
+    await expect(page).toHaveScreenshot(`management-${slug}.png`, {
+      fullPage: false,
+      animations: 'disabled',
+      caret: 'hide',
+      maxDiffPixelRatio: 0.05,
+      mask: [
+        page.locator('.page-card .el-table'),
+        page.locator('.page-card .el-pagination'),
+        page.locator('.page-card canvas'),
+        page.locator('.page-card .trend-box'),
+        page.locator('.page-card .el-alert')
+      ]
+    })
   }
 
   const unique = [...new Set(failures)]

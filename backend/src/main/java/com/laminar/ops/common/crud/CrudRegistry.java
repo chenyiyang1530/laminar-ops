@@ -254,7 +254,7 @@ public final class CrudRegistry {
                 .field(FieldDef.of("equipmentName", "equipment_name", "设备").virtual().form(false).width(180))
                 .field(FieldDef.of("pointCode", "point_code", "点位编码").query("like").readOnly().placeholder("保存后自动生成，如 AHU-01-TEMP").width(130))
                 .field(FieldDef.of("pointName", "point_name", "点位名称").query("like").required().width(150))
-                .field(FieldDef.of("metric", "metric", "监测指标").type("dict").dict("monitor_metric").query("eq").width(130))
+                .field(FieldDef.of("metric", "metric", "监测指标").type("dict").dict("monitor_metric").query("eq").required().width(130))
                 .field(FieldDef.of("unit", "unit", "单位").width(90))
                 .field(FieldDef.of("warnLower", "warn_lower", "预警下限").type("number").width(100))
                 .field(FieldDef.of("warnUpper", "warn_upper", "预警上限").type("number").width(100))
@@ -317,7 +317,7 @@ public final class CrudRegistry {
                                 "left join biz_company cp on cp.company_id = e.company_id"));
 
         register(ResourceDef.of("skill", "biz_skill", "skill_id", "技能标签", "staff:skill", "skill_name")
-                .noHospitalScope()
+                .noHospitalScope().audit(true, false, false, false)
                 .field(pk("skillId", "skill_id"))
                 .field(FieldDef.of("companyId", "company_id", "所属公司").type("select").options("company").required().list(false).width(160))
                 .field(FieldDef.of("companyName", "company_name", "公司名称").virtual().form(false).width(180))
@@ -334,7 +334,7 @@ public final class CrudRegistry {
                 .field(FieldDef.of("companyId", "company_id", "所属公司").type("select").options("company").required().list(false).width(160))
                 .field(FieldDef.of("companyName", "company_name", "公司名称").virtual().form(false).width(180))
                 .field(FieldDef.of("partName", "part_name", "备件名称").query("like").required().width(170))
-                .field(FieldDef.of("partCode", "part_code", "备件编码").query("like").width(120))
+                .field(FieldDef.of("partCode", "part_code", "备件编码").query("like").required().width(120))
                 .field(FieldDef.of("partCategory", "part_category", "类别").type("dict").dict("part_category").query("eq").width(110))
                 .field(FieldDef.of("spec", "spec", "规格型号").width(140))
                 .field(FieldDef.of("unit", "unit", "单位").width(70))
@@ -504,5 +504,7 @@ public final class CrudRegistry {
                 .field(statusField()));
     }
 }
+
+
 
 
