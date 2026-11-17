@@ -42,6 +42,7 @@ export const viewModules = {
   'system/config/index': () => import('../views/system/config/index.vue'),
   'system/dept/index': () => import('../views/system/dept/index.vue'),
   'system/dict/index': () => import('../views/system/dict/index.vue'),
+  'system/file-check/index': () => import('../views/system/file-check/index.vue'),
   'system/job/index': () => import('../views/system/job/index.vue'),
   'system/loginlog/index': () => import('../views/system/loginlog/index.vue'),
   'system/menu/index': () => import('../views/system/menu/index.vue'),
