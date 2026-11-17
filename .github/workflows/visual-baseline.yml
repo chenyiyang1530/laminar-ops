@@ -70,7 +70,7 @@ jobs:
           DB_URL: jdbc:mysql://127.0.0.1:3306/laminar_ops?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
           DB_USERNAME: root
           DB_PASSWORD: root
-          JWT_SECRET: visual-baseline-jwt-secret
+          JWT_SECRET: visual-baseline-jwt-secret-please-change-2026
           CONFIG_SECRET: visual-baseline-config-secret
           FILE_SIGN_SECRET: visual-baseline-file-secret
           UPLOAD_DIR: ${{ github.workspace }}/upload
@@ -120,5 +120,6 @@ jobs:
             git commit -m "test: add Linux visual baselines"
             git push
           fi
+
 
 
