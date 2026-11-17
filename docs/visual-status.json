@@ -8,6 +8,7 @@
   "missing-file.spec.mjs": "passed",
   "mobile.spec.mjs": "passed",
   "real-table.spec.mjs": "passed",
+  "role-management.spec.mjs": "passed",
   "subadmin.spec.mjs": "passed",
   "visual.spec.mjs": "passed",
   "workorder.spec.mjs": "passed"
