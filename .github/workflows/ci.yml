@@ -107,6 +107,8 @@ jobs:
           MONITOR_TOKEN: github-actions-monitor-token
           VERIFICATION_DEV_MODE: 'false'
           UPLOAD_DIR: ${{ github.workspace }}/upload
+          WEB_ADMIN_DIST: ${{ github.workspace }}/web-admin/dist
+          WEB_PORTAL_DIST: ${{ github.workspace }}/web-admin/dist-portal
         run: |
           mkdir -p upload ../upload
           nohup java -jar target/laminar-ops-1.0.0.jar > app.log 2>&1 &
@@ -199,6 +201,8 @@ jobs:
           MONITOR_TOKEN: github-actions-monitor-token
           VERIFICATION_DEV_MODE: 'false'
           UPLOAD_DIR: ${{ github.workspace }}/upload
+          WEB_ADMIN_DIST: ${{ github.workspace }}/web-admin/dist
+          WEB_PORTAL_DIST: ${{ github.workspace }}/web-admin/dist-portal
         run: |
           mkdir -p upload ../upload
           nohup java -jar target/laminar-ops-1.0.0.jar > app.log 2>&1 &
