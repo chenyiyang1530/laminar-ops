@@ -215,3 +215,30 @@ POST /api/system/file-check/items/{id}/recover
 巡检结果写入 `sys_file_check_run` 和 `sys_file_check_item`，保留历史。
 重新上传成功后立即把巡检项标记为已恢复；下一轮巡检会自动修正状态。
 
+
+### 文件巡检增强配置
+
+```text
+FILE_CHECK_BATCH_SIZE=500
+FILE_CHECK_THREADS=4
+```
+
+严重等级和 SLA：
+
+```text
+P1 证书/资质/合同：24 小时
+P2 文档/巡检图片：72 小时
+P3 工单图片：168 小时
+```
+
+报告支持：
+
+```text
+最近 30 天丢失/恢复趋势图
+按公司、医院、文件类型、等级筛选
+勾选多个丢失文件批量上传恢复
+消息中心点击文件巡检通知直接打开对应巡检项
+```
+
+巡检失败、定时巡检完成、文件恢复会写入 `sys_oper_log`。
+

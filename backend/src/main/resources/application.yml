@@ -115,6 +115,8 @@ laminar:
   file-check:
     enabled: ${FILE_CHECK_ENABLED:true}
     cron: "${FILE_CHECK_CRON:0 30 3 * * *}"
+    batch-size: ${FILE_CHECK_BATCH_SIZE:500}
+    threads: ${FILE_CHECK_THREADS:4}
   web:
     admin-dist: ${WEB_ADMIN_DIST:D:/ideaWork/laminar-ops/web-admin/dist}
     portal-dist: ${WEB_PORTAL_DIST:D:/ideaWork/laminar-ops/web-admin/dist-portal}

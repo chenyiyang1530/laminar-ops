@@ -12,7 +12,12 @@
         </div>
       </div>
 
-      <el-tabs v-model="active">
+      <div class="trend-box">
+        <div class="trend-head">最近 30 天趋势</div>
+        <EChart :option="trendOption" height="220px" />
+      </div>
+
+      <el-tabs v-model="active" @tab-change="onTabChange">
         <el-tab-pane label="巡检记录" name="runs">
           <el-table v-loading="runLoading" :data="runs" stripe>
             <el-table-column prop="runId" label="批次" width="90" />
@@ -43,34 +48,71 @@
         <el-tab-pane label="丢失文件" name="items">
           <el-form inline>
             <el-form-item label="状态">
-              <el-select v-model="itemStatus" clearable placeholder="全部" style="width: 130px" @change="searchItems">
+              <el-select v-model="filters.status" clearable placeholder="全部" style="width: 110px" @change="searchItems">
                 <el-option label="丢失" value="0" />
                 <el-option label="已恢复" value="1" />
               </el-select>
             </el-form-item>
+            <el-form-item label="公司">
+              <el-select v-model="filters.companyId" clearable filterable placeholder="全部" style="width: 170px" @change="searchItems">
+                <el-option v-for="c in companies" :key="c.value" :label="c.label" :value="c.value" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="医院">
+              <el-select v-model="filters.hospitalId" clearable filterable placeholder="全部" style="width: 170px" @change="searchItems">
+                <el-option v-for="h in hospitals" :key="h.value" :label="h.label" :value="h.value" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="类型">
+              <el-select v-model="filters.fileType" clearable placeholder="全部" style="width: 120px" @change="searchItems">
+                <el-option label="文档" value="document" />
+                <el-option label="图片" value="image" />
+                <el-option label="其他" value="other" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="等级">
+              <el-select v-model="filters.severity" clearable placeholder="全部" style="width: 100px" @change="searchItems">
+                <el-option label="P1" value="P1" />
+                <el-option label="P2" value="P2" />
+                <el-option label="P3" value="P3" />
+              </el-select>
+            </el-form-item>
             <el-form-item label="关键字">
-              <el-input v-model="keyword" clearable placeholder="路径 / 表名" style="width: 230px" @keyup.enter="searchItems" />
+              <el-input v-model="filters.keyword" clearable placeholder="路径 / 表名" style="width: 170px" @keyup.enter="searchItems" />
             </el-form-item>
             <el-form-item>
               <el-button type="primary" @click="searchItems">查询</el-button>
               <el-button @click="resetItems">重置</el-button>
+              <el-button :disabled="!selection.length || !canEdit" @click="openBatch">批量恢复</el-button>
             </el-form-item>
           </el-form>
 
-          <el-table v-loading="itemLoading" :data="items" stripe>
-            <el-table-column prop="tableName" label="表" width="190" />
-            <el-table-column prop="recordId" label="记录ID" width="90" />
-            <el-table-column prop="fileColumn" label="字段" width="120" />
-            <el-table-column prop="companyName" label="公司" min-width="150" show-overflow-tooltip />
-            <el-table-column prop="hospitalName" label="医院" min-width="150" show-overflow-tooltip />
-            <el-table-column prop="filePath" label="文件路径" min-width="260" show-overflow-tooltip />
-            <el-table-column prop="status" label="状态" width="100">
+          <el-table v-loading="itemLoading" :data="items" stripe @selection-change="onSelection">
+            <el-table-column type="selection" width="46" :selectable="(row) => row.status === '0'" />
+            <el-table-column prop="severity" label="等级" width="74">
+              <template #default="{ row }">
+                <el-tag :type="row.severity === 'P1' ? 'danger' : row.severity === 'P2' ? 'warning' : 'info'" size="small">{{ row.severity }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="tableName" label="表" width="180" show-overflow-tooltip />
+            <el-table-column prop="recordId" label="记录ID" width="80" />
+            <el-table-column prop="fileColumn" label="字段" width="110" />
+            <el-table-column prop="fileType" label="类型" width="80" />
+            <el-table-column prop="companyName" label="公司" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="hospitalName" label="医院" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="filePath" label="文件路径" min-width="230" show-overflow-tooltip />
+            <el-table-column prop="status" label="状态" width="88">
               <template #default="{ row }">
                 <el-tag :type="row.status === '0' ? 'danger' : 'success'" size="small">{{ row.status === '0' ? '丢失' : '已恢复' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="lastSeen" label="最近发现" min-width="170" />
-            <el-table-column label="操作" width="130" fixed="right">
+            <el-table-column label="SLA" width="150">
+              <template #default="{ row }">
+                <span v-if="row.status === '1'">已恢复</span>
+                <span v-else :class="{ danger: isOverdue(row) }">{{ row.slaDeadline ? `截止 ${String(row.slaDeadline).slice(5, 16)}` : '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="110" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="row.status === '0' && canEdit" link type="primary" @click="openRecover(row)">重新上传</el-button>
               </template>
@@ -91,17 +133,35 @@
         <el-button type="primary" :loading="recovering" :disabled="!recoverFile" @click="submitRecover">上传并恢复</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="batchVisible" title="批量恢复文件" width="760px">
+      <el-table :data="batchRows" size="small">
+        <el-table-column prop="severity" label="等级" width="66" />
+        <el-table-column prop="tableName" label="表" width="150" />
+        <el-table-column prop="recordId" label="记录" width="70" />
+        <el-table-column label="新文件" min-width="300">
+          <template #default="{ row }"><FileUpload v-model="row.recoverFile" category="document" /></template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="batchVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchSaving" @click="submitBatch">批量恢复</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 import FileUpload from '@/components/FileUpload.vue'
+import EChart from '@/components/EChart.vue'
 import { useUserStore } from '@/store/user'
+import { useRoute } from 'vue-router'
 
 const store = useUserStore()
+const route = useRoute()
 const canRun = computed(() => store.hasPerm('system:filecheck:run'))
 const canEdit = computed(() => store.hasPerm('system:filecheck:edit'))
 
@@ -118,13 +178,44 @@ const items = ref([])
 const itemPage = ref(1)
 const itemSize = ref(20)
 const itemTotal = ref(0)
-const itemStatus = ref('')
-const keyword = ref('')
+const selection = ref([])
+const companies = ref([])
+const hospitals = ref([])
+const filters = reactive({ status: '', companyId: undefined, hospitalId: undefined, fileType: '', severity: '', keyword: '', itemId: undefined })
+const trend = ref([])
 
 const recoverVisible = ref(false)
 const recoverItem = ref(null)
 const recoverFile = ref('')
 const recovering = ref(false)
+const batchVisible = ref(false)
+const batchRows = ref([])
+const batchSaving = ref(false)
+
+const trendOption = computed(() => ({
+  tooltip: { trigger: 'axis' },
+  legend: { data: ['丢失', '恢复'], right: 10 },
+  grid: { left: 40, right: 20, top: 35, bottom: 28 },
+  xAxis: { type: 'category', data: trend.value.map((x) => x.date.slice(5)) },
+  yAxis: { type: 'value', minInterval: 1 },
+  series: [
+    { name: '丢失', type: 'line', smooth: true, data: trend.value.map((x) => x.missing), itemStyle: { color: '#f56c6c' }, areaStyle: { opacity: 0.08 } },
+    { name: '恢复', type: 'line', smooth: true, data: trend.value.map((x) => x.recovered), itemStyle: { color: '#67c23a' }, areaStyle: { opacity: 0.08 } }
+  ]
+}))
+
+function isOverdue(row) {
+  return row.slaDeadline && new Date(row.slaDeadline).getTime() < Date.now()
+}
+
+async function loadTrend() {
+  try {
+    const res = await request.get('/system/file-check/trend', { params: { days: 30 } })
+    trend.value = res.data || []
+  } catch {
+    trend.value = []
+  }
+}
 
 async function loadRuns() {
   runLoading.value = true
@@ -141,7 +232,17 @@ async function loadItems() {
   itemLoading.value = true
   try {
     const res = await request.get('/system/file-check/items', {
-      params: { pageNum: itemPage.value, pageSize: itemSize.value, status: itemStatus.value, keyword: keyword.value }
+      params: {
+        pageNum: itemPage.value,
+        pageSize: itemSize.value,
+        status: filters.status,
+        keyword: filters.keyword,
+        companyId: filters.companyId,
+        hospitalId: filters.hospitalId,
+        fileType: filters.fileType,
+        severity: filters.severity,
+        itemId: filters.itemId
+      }
     })
     items.value = res.data.records || []
     itemTotal.value = res.data.total || 0
@@ -156,13 +257,34 @@ function searchItems() {
 }
 
 function resetItems() {
-  itemStatus.value = ''
-  keyword.value = ''
+  filters.status = ''
+  filters.companyId = undefined
+  filters.hospitalId = undefined
+  filters.fileType = ''
+  filters.severity = ''
+  filters.keyword = ''
+  filters.itemId = undefined
   searchItems()
 }
 
+function onTabChange(name) {
+  if (name === 'items') loadItems()
+}
+
+function onSelection(rows) {
+  selection.value = rows
+}
+
 async function loadAll() {
-  await Promise.all([loadRuns(), loadItems()])
+  await Promise.all([loadTrend(), loadRuns(), loadItems()])
+}
+
+async function loadOptions() {
+  try {
+    const [c, h] = await Promise.all([request.get('/crud/company/options'), request.get('/crud/hospital/options')])
+    companies.value = c.data || []
+    hospitals.value = h.data || []
+  } catch { /* 无选项权限时保留手工筛选能力 */ }
 }
 
 async function runNow() {
@@ -201,10 +323,45 @@ async function submitRecover() {
   }
 }
 
-onMounted(loadAll)
+function openBatch() {
+  batchRows.value = selection.value.map((row) => ({ ...row, recoverFile: '' }))
+  batchVisible.value = true
+}
+
+async function submitBatch() {
+  const ready = batchRows.value.filter((row) => row.recoverFile)
+  if (!ready.length) {
+    ElMessage.warning('请至少上传一个文件')
+    return
+  }
+  batchSaving.value = true
+  try {
+    let ok = 0
+    for (const row of ready) {
+      await request.post(`/system/file-check/items/${row.itemId}/recover`, { fileUrl: row.recoverFile })
+      ok++
+    }
+    ElMessage.success(`已恢复 ${ok} 个文件`)
+    batchVisible.value = false
+    await loadAll()
+  } finally {
+    batchSaving.value = false
+  }
+}
+
+onMounted(async () => {
+  if (route.query.itemId) {
+    filters.itemId = Number(route.query.itemId)
+    active.value = 'items'
+  }
+  await loadOptions()
+  await loadAll()
+})
 </script>
 
 <style scoped>
 .pager { display: flex; justify-content: flex-end; margin-top: 14px; }
 .danger { color: #f56c6c; font-weight: 600; }
+.trend-box { margin: 4px 0 12px; padding: 10px 14px 0; border: 1px solid #eef2f7; border-radius: 10px; background: #fff; }
+.trend-head { font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 2px; }
 </style>

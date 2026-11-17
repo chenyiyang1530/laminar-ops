@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -39,8 +40,20 @@ public class FileCheckController {
     public Result<Map<String, Object>> items(@RequestParam(defaultValue = "1") int pageNum,
                                               @RequestParam(defaultValue = "20") int pageSize,
                                               @RequestParam(required = false) String status,
-                                              @RequestParam(required = false) String keyword) {
-        return Result.ok(fileCheckService.pageItems(pageNum, pageSize, status, keyword));
+                                              @RequestParam(required = false) String keyword,
+                                              @RequestParam(required = false) Long companyId,
+                                              @RequestParam(required = false) Long hospitalId,
+                                              @RequestParam(required = false) String fileType,
+                                              @RequestParam(required = false) String severity,
+                                              @RequestParam(required = false) Long itemId) {
+        return Result.ok(fileCheckService.pageItems(pageNum, pageSize, status, keyword,
+                companyId, hospitalId, fileType, severity, itemId));
+    }
+
+    @GetMapping("/trend")
+    @Perm("system:filecheck:list")
+    public Result<List<Map<String, Object>>> trend(@RequestParam(defaultValue = "30") int days) {
+        return Result.ok(fileCheckService.trend(days));
     }
 
     @PostMapping("/items/{id}/recover")

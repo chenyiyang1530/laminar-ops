@@ -61,8 +61,10 @@ import { ElMessage } from 'element-plus'
 import { Check, Refresh, Warning, Bell } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { useUserStore } from '@/store/user'
+import { useRouter } from 'vue-router'
 
 const store = useUserStore()
+const router = useRouter()
 const loading = ref(false)
 const records = ref([])
 const total = ref(0)
@@ -93,6 +95,9 @@ async function openMsg(m) {
   if (m.isRead === '0') {
     await request.put('/message/read/' + m.msgId)
     m.isRead = '1'
+  }
+  if (m.bizType === 'file_check' && m.bizId) {
+    router.push({ path: '/system/file-check', query: { itemId: m.bizId } })
   }
 }
 
