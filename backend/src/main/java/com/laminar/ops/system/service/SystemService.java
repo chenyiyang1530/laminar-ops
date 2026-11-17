@@ -29,11 +29,11 @@ public class SystemService {
     private final SysConfigService sysConfig;
 
     private static final List<String> RESERVED_ROLE_KEYS = List.of(
-            "super_admin", "hospital_admin", "hospital_dept",
+            "super_admin", "hospital_admin", "hospital_dept", "hospital_sub_admin",
             "maintenance_manager", "regional_manager", "engineer",
             "company_executive", "department_staff", "company_admin", "company_sub_admin");
 
-    private static final Set<Long> STANDARD_ASSIGNABLE = Set.of(100L, 101L, 102L, 103L, 104L, 213L, 214L);
+    private static final Set<Long> STANDARD_ASSIGNABLE = Set.of(100L, 101L, 102L, 103L, 104L, 202L, 213L, 214L);
 
     /** 区域主管等业务下拉：仅内部账号（不含院方），按当前公司隔离 */
     public List<Map<String, Object>> userOptions() {
@@ -551,7 +551,7 @@ public class SystemService {
             return jdbc.queryForList(sql + " order by r.sort");
         }
         return jdbc.queryForList(sql +
-                " where (r.company_id = ?) or (r.company_id is null and r.role_id in (100,101,102,104,213,214)) " +
+                " where (r.company_id = ?) or (r.company_id is null and r.role_id in (100,101,102,104,202,213,214)) " +
                 " order by r.sort", companyId);
     }
 
@@ -1050,3 +1050,4 @@ public class SystemService {
         return o == null ? 0 : ((Number) o).intValue();
     }
 }
+
