@@ -68,15 +68,57 @@ test('登录 → 受理 → 派工 → 到场 → 完工 → 院方验收', asyn
   await textareas.nth(0).fill('E2E 测试故障原因')
   await textareas.nth(1).fill('E2E 测试处理措施')
   await textareas.nth(2).fill('E2E 测试维修报告')
+  await finishDialog.locator('input[type=file]').setInputFiles({
+    name: 'e2e.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
+  })
+  await expect(page.getByText('上传成功').first()).toBeVisible({ timeout: 15_000 })
   await finishDialog.getByRole('button', { name: '提交验收' }).click()
   await expect(page.getByText('已提交验收').first()).toBeVisible({ timeout: 10_000 })
 
-  // 4. 院方登录并验收
+  // 4. 院方第一次验收：驳回
   await page.evaluate(() => localStorage.clear())
   await loginPortal(page, 'e2e_hospital')
   await page.goto('/portal/workorders')
   await expect(page.getByText(title).first()).toBeVisible({ timeout: 15_000 })
 
+  row = await findRow(page, title)
+  await row.getByRole('button', { name: '验收', exact: true }).click()
+  const rejectDialog = page.locator('.el-dialog').filter({ hasText: '工单验收' }).last()
+  await rejectDialog.getByText('驳回', { exact: true }).click()
+  await rejectDialog.getByPlaceholder('驳回请说明原因').fill('E2E 验收驳回，要求重新处理')
+  const photoLink = rejectDialog.getByRole('link', { name: /查看.*照片/ })
+  await expect(photoLink).toBeVisible()
+  const signedHref = await photoLink.getAttribute('href')
+  expect(signedHref).toContain('/api/common/signed-file')
+  const photo = await page.request.get(new URL(signedHref, 'http://127.0.0.1:8080').href)
+  expect(photo.status()).toBe(200)
+  await rejectDialog.getByRole('button', { name: '确认验收' }).click()
+  await expect(page.getByText('验收已提交').first()).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText('处理中').first()).toBeVisible({ timeout: 10_000 })
+
+  // 5. 工程师重新完工
+  await page.evaluate(() => localStorage.clear())
+  await loginAdmin(page, 'e2e_engineer')
+  await page.goto('/app/workorder/my')
+  await page.getByPlaceholder('工单号 / 标题').fill(title)
+  await page.getByRole('button', { name: '查询' }).click()
+  row = await findRow(page, title)
+  await row.getByRole('button', { name: '完工', exact: true }).click()
+  const reworkDialog = page.locator('.el-dialog').filter({ hasText: '完工提交' }).last()
+  const reworkTextareas = reworkDialog.locator('textarea')
+  await reworkTextareas.nth(0).fill('E2E 重新处理故障原因')
+  await reworkTextareas.nth(1).fill('E2E 重新处理措施')
+  await reworkTextareas.nth(2).fill('E2E 重新处理报告')
+  await reworkDialog.getByRole('button', { name: '提交验收' }).click()
+  await expect(page.getByText('已提交验收').first()).toBeVisible({ timeout: 10_000 })
+
+  // 6. 院方验收通过
+  await page.evaluate(() => localStorage.clear())
+  await loginPortal(page, 'e2e_hospital')
+  await page.goto('/portal/workorders')
+  await expect(page.getByText(title).first()).toBeVisible({ timeout: 15_000 })
   row = await findRow(page, title)
   await row.getByRole('button', { name: '验收', exact: true }).click()
   const acceptDialog = page.locator('.el-dialog').filter({ hasText: '工单验收' }).last()

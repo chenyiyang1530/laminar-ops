@@ -8,11 +8,12 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
+  snapshotPathTemplate: '{testDir}/__screenshots__/{testFilePath}/{arg}{ext}',
   globalSetup: './tests/e2e/global-setup.mjs',
   globalTeardown: './tests/e2e/global-teardown.mjs',
   use: {
     baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:8080',
-    channel: process.env.E2E_BROWSER_CHANNEL || 'msedge',
+    channel: process.env.E2E_BROWSER_CHANNEL || 'chromium',
     headless: true,
     viewport: { width: 1440, height: 900 },
     trace: 'retain-on-failure',

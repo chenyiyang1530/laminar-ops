@@ -12,6 +12,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.MediaTypeFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -51,6 +52,7 @@ public class FileController {
     private final SysConfigService sysConfig;
     private final FileSignService fileSignService;
     private final UploadScanService uploadScanService;
+    private final JdbcTemplate jdbc;
     private final Tika tika = new Tika();
 
     @Value("${laminar.upload.path:./upload}")
@@ -114,6 +116,14 @@ public class FileController {
     private void checkAccess(LoginUser user, String relative, Path target) {
         if (!Files.isRegularFile(target)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "文件不存在");
+        }
+        if (user.isHospitalUser() && relative.startsWith("company/")) {
+            String legacyPath = "/upload/" + relative;
+            Integer linked = jdbc.queryForObject(
+                    "select count(*) from biz_workorder where hospital_id=? and " +
+                            "(finish_image in (?,?) or acceptance_image in (?,?))",
+                    Integer.class, user.getHospitalId(), relative, legacyPath, relative, legacyPath);
+            if (linked != null && linked > 0) return;
         }
         if (!user.isSuperAdmin() && relative.startsWith("company/")) {
             Long companyId = user.getCompanyId();

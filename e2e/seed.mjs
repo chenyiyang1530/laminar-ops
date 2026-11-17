@@ -38,6 +38,7 @@ DELETE FROM biz_hospital_user WHERE user_id IN (SELECT user_id FROM sys_user WHE
 DELETE FROM sys_user_role WHERE user_id IN (SELECT user_id FROM sys_user WHERE username LIKE 'e2e_%');
 DELETE FROM biz_engineer WHERE engineer_name='E2E工程师';
 DELETE FROM sys_user WHERE username LIKE 'e2e_%';
+DELETE FROM biz_department WHERE dept_code LIKE 'E2E-%';
 DELETE FROM biz_equipment WHERE equipment_code LIKE 'E2E-%';
 DELETE FROM biz_company_hospital WHERE company_id IN (SELECT company_id FROM biz_company WHERE company_code='${companyCode}')
   OR hospital_id IN (SELECT hospital_id FROM biz_hospital WHERE hospital_code='E2E-HOSP');
@@ -52,6 +53,14 @@ SET @company_id=LAST_INSERT_ID();
 INSERT INTO biz_hospital(hospital_name,hospital_code,status,create_time)
 VALUES('E2E测试医院','E2E-HOSP','0',NOW());
 SET @hospital_id=LAST_INSERT_ID();
+
+INSERT INTO biz_department(hospital_id,dept_code,department_name,status,create_time)
+VALUES(@hospital_id,'E2E-DEPT-A','E2E科室A','0',NOW());
+SET @dept_a=LAST_INSERT_ID();
+
+INSERT INTO biz_department(hospital_id,dept_code,department_name,status,create_time)
+VALUES(@hospital_id,'E2E-DEPT-B','E2E科室B','0',NOW());
+SET @dept_b=LAST_INSERT_ID();
 
 INSERT INTO biz_device_type(company_id,type_code,type_name,status,create_time)
 VALUES(@company_id,'E2E-DEV','E2E设备类型','0',NOW());
@@ -80,9 +89,23 @@ INSERT INTO sys_user_role(user_id,role_id) VALUES(@hospital_user,200);
 INSERT INTO biz_hospital_user(user_id,hospital_id,role_type,status,create_time)
 VALUES(@hospital_user,@hospital_id,'admin','0',NOW());
 
-INSERT INTO biz_workorder(workorder_no,title,fault_desc,fault_level,status,source,service_type,hospital_id,equipment_id,company_id,report_contact,report_phone,create_time)
-VALUES(CONCAT('WO-E2E-',DATE_FORMAT(NOW(),'%Y%m%d%H%i%s')),'${title}','E2E 登录到验收测试工单','2','0','hospital','0',@hospital_id,@equipment_id,@company_id,'E2E','13900009999',NOW());
-SELECT CONCAT(@company_id, '|', @hospital_id, '|', @equipment_id, '|', @company_user, '|', @engineer_user, '|', @hospital_user);
+INSERT INTO sys_user(username,password,nick_name,user_type,status,must_change_pwd,create_time)
+VALUES('e2e_subadmin_a','${hash}','E2E科室A管理员','2','0',0,NOW());
+SET @subadmin_a=LAST_INSERT_ID();
+INSERT INTO sys_user_role(user_id,role_id) VALUES(@subadmin_a,202);
+INSERT INTO biz_hospital_user(user_id,hospital_id,department_id,role_type,status,create_time)
+VALUES(@subadmin_a,@hospital_id,@dept_a,'dept','0',NOW());
+
+INSERT INTO biz_workorder(workorder_no,title,fault_desc,fault_level,status,source,service_type,hospital_id,department_id,equipment_id,company_id,report_contact,report_phone,create_time)
+VALUES(CONCAT('WO-E2E-',DATE_FORMAT(NOW(),'%Y%m%d%H%i%s')),'${title}','E2E 登录到验收测试工单','2','0','hospital','0',@hospital_id,NULL,@equipment_id,@company_id,'E2E','13900009999',NOW());
+
+INSERT INTO biz_workorder(workorder_no,title,fault_desc,fault_level,status,source,service_type,hospital_id,department_id,equipment_id,company_id,report_contact,report_phone,create_time)
+VALUES(CONCAT('WO-E2E-A-',DATE_FORMAT(NOW(),'%Y%m%d%H%i%s')),'${title}-A','E2E 科室A工单','2','0','hospital','0',@hospital_id,@dept_a,@equipment_id,@company_id,'E2E','13900009999',NOW());
+
+INSERT INTO biz_workorder(workorder_no,title,fault_desc,fault_level,status,source,service_type,hospital_id,department_id,equipment_id,company_id,report_contact,report_phone,create_time)
+VALUES(CONCAT('WO-E2E-B-',DATE_FORMAT(NOW(),'%Y%m%d%H%i%s')),'${title}-B','E2E 科室B工单','2','0','hospital','0',@hospital_id,@dept_b,@equipment_id,@company_id,'E2E','13900009999',NOW());
+
+SELECT CONCAT(@company_id, '|', @hospital_id, '|', @equipment_id, '|', @company_user, '|', @engineer_user, '|', @hospital_user, '|', @subadmin_a, '|', @dept_a, '|', @dept_b);
 `)
 
 const ids = result.trim().split('|').map(Number)
@@ -91,6 +114,9 @@ fs.mkdirSync(path.join(root, 'e2e'), { recursive: true })
 fs.writeFileSync(path.join(root, 'e2e', '.test-data.json'), JSON.stringify({
   title, workorderNo, password, companyCode,
   companyId: ids[0], hospitalId: ids[1], equipmentId: ids[2],
-  companyUserId: ids[3], engineerUserId: ids[4], hospitalUserId: ids[5]
+  companyUserId: ids[3], engineerUserId: ids[4], hospitalUserId: ids[5],
+  subadminUserId: ids[6], deptAId: ids[7], deptBId: ids[8],
+  deptTitleA: `${title}-A`, deptTitleB: `${title}-B`,
+  subadminUsername: 'e2e_subadmin_a'
 }, null, 2))
 console.log(`E2E data ready: ${title} / ${workorderNo}`)

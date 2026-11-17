@@ -28,6 +28,7 @@ DELETE FROM biz_hospital_user WHERE user_id IN (SELECT user_id FROM sys_user WHE
 DELETE FROM sys_user_role WHERE user_id IN (SELECT user_id FROM sys_user WHERE username LIKE 'e2e_%');
 DELETE FROM biz_engineer WHERE engineer_name='E2E工程师';
 DELETE FROM sys_user WHERE username LIKE 'e2e_%';
+DELETE FROM biz_department WHERE dept_code LIKE 'E2E-%';
 DELETE FROM biz_equipment WHERE equipment_code LIKE 'E2E-%';
 DELETE FROM biz_company_hospital WHERE company_id IN (SELECT company_id FROM biz_company WHERE company_code='E2E_TEST')
   OR hospital_id IN (SELECT hospital_id FROM biz_hospital WHERE hospital_code='E2E-HOSP');
