@@ -1,5 +1,6 @@
 package com.laminar.ops.system.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.laminar.ops.common.Result;
 import com.laminar.ops.security.AuthContext;
 import com.laminar.ops.security.Perm;
@@ -36,6 +37,7 @@ public class FileCheckController {
     private final FileCheckSlaJob fileCheckSlaJob;
     private final FileCheckRecipientService fileCheckRecipientService;
     private final FileCheckAsyncService fileCheckAsyncService;
+    private final ObjectMapper objectMapper;
 
     @PostMapping("/run")
     @Perm("system:filecheck:run")
@@ -80,9 +82,13 @@ public class FileCheckController {
     @Perm("system:filecheck:edit")
     public Result<Map<String, Object>> batchRecover(@RequestBody List<Map<String, String>> items) {
         String user = AuthContext.require().getNickName();
-        long jobId = fileCheckAsyncService.createJob("batch_recover", user);
-        fileCheckAsyncService.batchRecover(jobId, items, user);
-        return Result.ok(Map.of("jobId", jobId));
+        try {
+            long jobId = fileCheckAsyncService.createJob("batch_recover", user, objectMapper.writeValueAsString(items));
+            fileCheckAsyncService.batchRecover(jobId, items, user);
+            return Result.ok(Map.of("jobId", jobId));
+        } catch (Exception e) {
+            throw new com.laminar.ops.common.BizException(500, "提交批量恢复失败：" + e.getMessage());
+        }
     }
 
     @PostMapping("/export-async")
@@ -93,11 +99,36 @@ public class FileCheckController {
                                                    @RequestParam(required = false) Long companyId,
                                                    @RequestParam(required = false) Long hospitalId,
                                                    @RequestParam(required = false) String fileType,
-                                                   @RequestParam(required = false) String severity) {
+                                                   @RequestParam(required = false) String severity) throws Exception {
         String user = AuthContext.require().getNickName();
-        long jobId = fileCheckAsyncService.createJob("file_check_export", user);
+        java.util.Map<String, String> payload = new java.util.LinkedHashMap<>();
+        payload.put("format", format); payload.put("status", status); payload.put("keyword", keyword);
+        payload.put("companyId", companyId == null ? null : String.valueOf(companyId));
+        payload.put("hospitalId", hospitalId == null ? null : String.valueOf(hospitalId));
+        payload.put("fileType", fileType); payload.put("severity", severity);
+        long jobId = fileCheckAsyncService.createJob("file_check_export", user, objectMapper.writeValueAsString(payload));
         fileCheckAsyncService.exportAsync(jobId, format, status, keyword, companyId, hospitalId, fileType, severity, user);
         return Result.ok(Map.of("jobId", jobId));
+    }
+
+    @GetMapping("/jobs")
+    @Perm("system:filecheck:list")
+    public Result<Map<String, Object>> jobs(@RequestParam(defaultValue = "1") int pageNum,
+                                             @RequestParam(defaultValue = "20") int pageSize) {
+        return Result.ok(fileCheckAsyncService.list(pageNum, pageSize));
+    }
+
+    @PostMapping("/jobs/{id}/cancel")
+    @Perm("system:filecheck:run")
+    public Result<Void> cancelJob(@PathVariable Long id) {
+        fileCheckAsyncService.cancel(id);
+        return Result.ok();
+    }
+
+    @PostMapping("/jobs/{id}/retry")
+    @Perm("system:filecheck:run")
+    public Result<Map<String, Object>> retryJob(@PathVariable Long id) {
+        return Result.ok(Map.of("jobId", fileCheckAsyncService.retry(id, AuthContext.require().getNickName())));
     }
 
     @GetMapping("/jobs/{id}")
@@ -169,3 +200,5 @@ public class FileCheckController {
         return Result.ok(fileCheckService.recover(id, body == null ? null : body.get("fileUrl")));
     }
 }
+
+

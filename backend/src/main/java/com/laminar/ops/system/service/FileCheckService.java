@@ -16,6 +16,7 @@ public class FileCheckService {
 
     private final FileCheckScanService scanService;
     private final FileCheckQueryService queryService;
+    private final FileCheckRecoveryService recoveryService;
 
     public Map<String, Object> run(String triggerType) {
         return scanService.run(triggerType);
@@ -41,6 +42,6 @@ public class FileCheckService {
 
     public Map<String, Object> recover(Long itemId, String fileUrl) {
         if (itemId == null) throw BizException.badRequest("巡检项不能为空");
-        return scanService.recover(itemId, fileUrl);
+        return recoveryService.recover(itemId, fileUrl);
     }
 }

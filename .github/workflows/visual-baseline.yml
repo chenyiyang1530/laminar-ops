@@ -1,0 +1,99 @@
+name: Visual Baseline (Linux)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  baseline:
+    name: Generate Linux screenshots
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: laminar_ops
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web-admin/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Build backend
+        run: mvn -B -DskipTests package
+        working-directory: backend
+      - name: Install frontend
+        run: npm ci
+        working-directory: web-admin
+      - name: Build frontend
+        run: npm run build
+        working-directory: web-admin
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: web-admin
+      - name: Install MySQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq default-mysql-client
+      - name: Start backend
+        env:
+          DB_URL: jdbc:mysql://127.0.0.1:3306/laminar_ops?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+          DB_USERNAME: root
+          DB_PASSWORD: root
+          JWT_SECRET: visual-baseline-jwt-secret
+          CONFIG_SECRET: visual-baseline-config-secret
+          FILE_SIGN_SECRET: visual-baseline-file-secret
+          UPLOAD_DIR: ${{ github.workspace }}/upload
+        run: |
+          mkdir -p upload
+          nohup java -jar target/laminar-ops-1.0.0.jar > app.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/actuator/health
+        working-directory: backend
+      - name: Generate Linux snapshots
+        env:
+          CI: 'false'
+          MYSQL_BIN: mysql
+          MYSQL_ROOT_PASSWORD: root
+          E2E_BROWSER_CHANNEL: chromium
+        run: npx playwright test tests/e2e/visual.spec.mjs tests/e2e/file-check-visual.spec.mjs --update-snapshots
+        working-directory: web-admin
+      - name: Commit Linux snapshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web-admin/tests/e2e/__screenshots__
+          if git diff --cached --quiet; then
+            echo "No snapshot changes"
+          else
+            git commit -m "test: add Linux visual baselines"
+            git push
+          fi

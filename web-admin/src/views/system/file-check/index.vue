@@ -151,6 +151,35 @@
             </el-table-column>
           </el-table>
         </el-tab-pane>
+
+        <el-tab-pane label="异步任务" name="jobs">
+          <div class="recipient-tools">
+            <el-button @click="loadJobs">刷新</el-button>
+          </div>
+          <el-table v-loading="jobLoading" :data="jobs" stripe>
+            <el-table-column prop="jobId" label="任务ID" width="80" />
+            <el-table-column prop="jobType" label="类型" width="150" />
+            <el-table-column prop="status" label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 'success' ? 'success' : row.status === 'running' ? 'warning' : 'danger'" size="small">{{ row.status }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="progress" label="进度" width="90">
+              <template #default="{ row }">{{ row.progress }}%</template>
+            </el-table-column>
+            <el-table-column prop="message" label="结果" min-width="260" show-overflow-tooltip />
+            <el-table-column prop="createTime" label="创建时间" min-width="170" />
+            <el-table-column label="操作" width="150">
+              <template #default="{ row }">
+                <el-button v-if="row.status === 'running'" link type="danger" @click="cancelJob(row)">取消</el-button>
+                <el-button v-if="['failed', 'partial', 'cancelled'].includes(row.status)" link type="primary" @click="retryJob(row)">重试</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div class="pager">
+            <el-pagination v-model:current-page="jobPage" :page-size="jobSize" :total="jobTotal" layout="total, prev, pager, next" @current-change="loadJobs" />
+          </div>
+        </el-tab-pane>
       </el-tabs>
     </div>
 
@@ -262,6 +291,11 @@ const recipientLoading = ref(false)
 const recipientVisible = ref(false)
 const recipientSaving = ref(false)
 const recipientForm = reactive({ recipientId: undefined, companyId: undefined, hospitalId: undefined, email: '', enabled: '1' })
+const jobs = ref([])
+const jobLoading = ref(false)
+const jobPage = ref(1)
+const jobSize = ref(20)
+const jobTotal = ref(0)
 
 const trendOption = computed(() => ({
   tooltip: { trigger: 'axis' },
@@ -344,6 +378,7 @@ function resetItems() {
 function onTabChange(name) {
   if (name === 'items') loadItems()
   if (name === 'recipients') loadRecipients()
+  if (name === 'jobs') loadJobs()
 }
 
 function onSelection(rows) {
@@ -514,6 +549,29 @@ async function removeRecipient(row) {
   await request.delete(`/system/file-check/recipients/${row.recipientId}`)
   ElMessage.success('已删除')
   await loadRecipients()
+}
+
+async function loadJobs() {
+  jobLoading.value = true
+  try {
+    const res = await request.get('/system/file-check/jobs', { params: { pageNum: jobPage.value, pageSize: jobSize.value } })
+    jobs.value = res.data.records || []
+    jobTotal.value = res.data.total || 0
+  } finally {
+    jobLoading.value = false
+  }
+}
+
+async function cancelJob(row) {
+  await request.post(`/system/file-check/jobs/${row.jobId}/cancel`)
+  ElMessage.success('已请求取消')
+  await loadJobs()
+}
+
+async function retryJob(row) {
+  const res = await request.post(`/system/file-check/jobs/${row.jobId}/retry`)
+  ElMessage.success(`已创建重试任务 #${res.data.jobId}`)
+  await loadJobs()
 }
 
 onMounted(async () => {

@@ -155,38 +155,6 @@ public class FileCheckScanService {
         return queryService.trend(days, companyId, hospitalId, granularity);
     }
 
-    public Map<String, Object> recover(Long itemId, String fileUrl) {
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "select item_id, table_name, record_id, file_column, company_id, hospital_id, file_path " +
-                        "from sys_file_check_item where item_id=?", itemId);
-        if (rows.isEmpty()) throw BizException.badRequest("巡检项不存在");
-        Map<String, Object> item = rows.get(0);
-        String table = String.valueOf(item.get("table_name"));
-        String column = String.valueOf(item.get("file_column"));
-        Long recordId = ((Number) item.get("record_id")).longValue();
-        FileRef ref = REFS.stream().filter(r -> r.table().equals(table) && r.column().equals(column)).findFirst()
-                .orElseThrow(() -> BizException.forbidden("不允许修改该文件字段"));
-
-        String relative = normalize(fileUrl);
-        if (relative == null) throw BizException.badRequest("文件地址无效");
-        Path root = Path.of(uploadPath).toAbsolutePath().normalize();
-        Path target = root.resolve(relative).normalize();
-        if (!target.startsWith(root) || !Files.isRegularFile(target)) {
-            throw BizException.badRequest("上传文件不存在");
-        }
-        int updated = jdbc.update("update `" + ref.table() + "` set `" + ref.column() + "`=? where `" + ref.id() + "`=?",
-                relative, recordId);
-        if (updated == 0) throw BizException.badRequest("原业务记录不存在");
-        jdbc.update("update sys_file_check_item set file_path=?, status='1', resolved_time=now(), last_seen=now() where item_id=?",
-                relative, itemId);
-        audit("文件恢复", "0", null, "item=" + itemId + " table=" + table + " record=" + recordId + " file=" + relative);
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("itemId", itemId);
-        result.put("filePath", relative);
-        result.put("status", "1");
-        return result;
-    }
-
     private ScanResult scanAll(Path root, long runId) throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, Math.min(properties.getThreads(), 16)));
         try {
