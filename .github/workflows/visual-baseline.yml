@@ -2,6 +2,11 @@ name: Visual Baseline (Linux)
 
 on:
   workflow_dispatch:
+    inputs:
+      debug_target:
+        description: Optional single spec to debug
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -84,8 +89,24 @@ jobs:
           MYSQL_BIN: mysql
           MYSQL_ROOT_PASSWORD: root
           E2E_BROWSER_CHANNEL: chromium
-        run: npx playwright test tests/e2e/visual.spec.mjs tests/e2e/file-check-visual.spec.mjs tests/e2e/file-check-mobile-visual.spec.mjs tests/e2e/all-management.spec.mjs tests/e2e/all-management-mobile.spec.mjs tests/e2e/real-table.spec.mjs tests/e2e/role-management.spec.mjs tests/e2e/role-management-mobile.spec.mjs --update-snapshots
+        run: |
+          unset CI
+          TARGET="${{ inputs.debug_target }}"
+          if [ -n "$TARGET" ]; then
+            npx playwright test "$TARGET" --update-snapshots --max-failures=1 --timeout=30000
+          else
+            npx playwright test tests/e2e/visual.spec.mjs tests/e2e/file-check-visual.spec.mjs tests/e2e/file-check-mobile-visual.spec.mjs tests/e2e/all-management.spec.mjs tests/e2e/all-management-mobile.spec.mjs tests/e2e/real-table.spec.mjs tests/e2e/role-management.spec.mjs tests/e2e/role-management-mobile.spec.mjs --update-snapshots=all
+          fi
         working-directory: web-admin
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-debug
+          path: |
+            web-admin/test-results
+            web-admin/playwright-report
+          if-no-files-found: ignore
       - name: Commit Linux snapshots
         run: |
           git config user.name "github-actions[bot]"
