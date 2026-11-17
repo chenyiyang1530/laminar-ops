@@ -7,6 +7,42 @@ MySQL：laminar_ops
 上传文件：backend/upload
 ```
 
+## 加密
+
+备份生成后会自动加密为：
+
+```text
+laminar-ops-时间.zip.enc
+```
+
+加密方式：
+
+```text
+AES-256-CBC
+HMAC-SHA256 完整性校验
+PBKDF2-SHA256 100000 次派生
+```
+
+密码来自：
+
+```text
+BACKUP_ENCRYPTION_PASSWORD
+```
+
+密码已保存在本机 `.secrets.local`，不会提交仓库。
+
+解密：
+
+```powershell
+& "C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile `
+  -File D:\ideaWork\laminar-ops\tools\decrypt-backup.ps1 `
+  -EncryptedPath D:\backups\laminar-ops\laminar-ops-时间.zip.enc `
+  -OutputPath D:\ideaWork\restore.zip
+```
+
+然后按恢复步骤导入解压后的 SQL 和 upload 目录。
+
+
 ## 应用内定时备份
 
 后端已增加 `BackupJob`，默认每天 02:00 调用：

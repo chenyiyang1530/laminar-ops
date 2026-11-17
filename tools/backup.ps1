@@ -13,6 +13,10 @@ $ErrorActionPreference = "Stop"
 if (-not $env:DB_PASSWORD) {
   throw "请先设置环境变量 DB_PASSWORD 再执行备份脚本"
 }
+if (-not $env:BACKUP_ENCRYPTION_PASSWORD) {
+  throw "请先设置 BACKUP_ENCRYPTION_PASSWORD，备份必须加密"
+}
+. (Join-Path $PSScriptRoot "backup-crypto.ps1")
 
 $mysqldump = if ($env:MYSQLDUMP) { $env:MYSQLDUMP } else {
   $candidates = @(
@@ -50,8 +54,11 @@ $archive = Join-Path $BackupDir "laminar-ops-$stamp.zip"
 Compress-Archive -Path (Join-Path $work "*") -DestinationPath $archive -CompressionLevel Optimal
 Remove-Item -Path $work -Recurse -Force
 
-Get-ChildItem -Path $BackupDir -Filter "laminar-ops-*.zip" |
+$encrypted = Protect-BackupFile -SourcePath $archive -Password $env:BACKUP_ENCRYPTION_PASSWORD
+Remove-Item -Path $archive -Force
+
+Get-ChildItem -Path $BackupDir -Filter "laminar-ops-*.zip.enc" |
   Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$RetentionDays) } |
   Remove-Item -Force
 
-Write-Host "备份完成: $archive"
+Write-Host "备份完成（已加密）: $encrypted"

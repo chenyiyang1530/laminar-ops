@@ -24,8 +24,8 @@ if (Test-Path $secretsFile) {
 & (Join-Path $PSScriptRoot "backup.ps1") -BackupDir $BackupDir
 if ($LASTEXITCODE -ne 0) { throw "本地备份失败" }
 
-$latest = Get-ChildItem $BackupDir -Filter "laminar-ops-*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $latest) { throw "没有找到备份文件" }
+$latest = Get-ChildItem $BackupDir -Filter "laminar-ops-*.zip.enc" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (-not $latest) { throw "没有找到加密备份文件" }
 Write-Host "本地备份：$($latest.FullName)"
 
 if ($RcloneRemote) {
