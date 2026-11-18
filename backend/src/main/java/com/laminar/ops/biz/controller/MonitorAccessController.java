@@ -56,6 +56,12 @@ public class MonitorAccessController {
         return Result.ok(Map.of("token", gatewayService.rotate(id)));
     }
 
+    @GetMapping("/gateways/{id}/tokenLogs")
+    @Perm("device:equipment:list")
+    public Result<List<Map<String, Object>>> tokenLogs(@PathVariable Long id) {
+        return Result.ok(gatewayService.tokenLogs(id));
+    }
+
     @DeleteMapping("/gateways/{id}")
     @Perm("device:equipment:edit")
     public Result<Void> delete(@PathVariable Long id) {
@@ -77,8 +83,26 @@ public class MonitorAccessController {
 
     @GetMapping("/test/logs")
     @Perm("device:equipment:list")
-    public Result<List<Map<String, Object>>> testLogs() {
-        return Result.ok(gatewayService.testLogs());
+    public Result<List<Map<String, Object>>> testLogs(
+            @RequestParam(required = false) String equipmentCode,
+            @RequestParam(required = false) String result,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        return Result.ok(gatewayService.testLogs(equipmentCode, result, startDate, endDate));
+    }
+
+    @PostMapping("/test/preview")
+    @Perm("device:equipment:list")
+    public Result<Map<String, Object>> preview(@RequestBody Map<String, Object> body) {
+        String equipmentCode = String.valueOf(body.getOrDefault("equipmentCode", "")).trim();
+        String pointCode = String.valueOf(body.getOrDefault("pointCode", "")).trim();
+        double value;
+        try {
+            value = Double.parseDouble(String.valueOf(body.get("value")));
+        } catch (NumberFormatException e) {
+            throw new com.laminar.ops.common.BizException(400, "测试值必须是数字");
+        }
+        return Result.ok(gatewayService.preview(equipmentCode, pointCode, value));
     }
 
     @PostMapping("/test")

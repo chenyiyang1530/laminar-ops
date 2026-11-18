@@ -25,6 +25,13 @@ test('设备接入配置可新增网关并测试上报', async ({ page, request 
   await expect(page.getByRole('dialog').filter({ hasText: '网关 Token' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByText(code).first()).toBeVisible()
+  await expect(page.getByText('最近测试记录')).toBeVisible()
+
+  await page.getByRole('button', { name: '审计' }).first().click()
+  const auditDialog = page.getByRole('dialog').filter({ hasText: 'Token 审计' })
+  await expect(auditDialog).toBeVisible()
+  await expect(auditDialog.getByText('生成')).toBeVisible()
+  await page.keyboard.press('Escape')
 
   await page.getByRole('button', { name: '测试上报' }).click()
   const testDialog = page.getByRole('dialog').filter({ hasText: '测试上报' })

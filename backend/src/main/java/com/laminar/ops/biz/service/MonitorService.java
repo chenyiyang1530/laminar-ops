@@ -274,6 +274,10 @@ public class MonitorService {
 
     /** 网关上报：按设备编码 + 点位编码写入实时值/历史并判定告警 */
     public int report(String equipmentCode, String pointCode, double value) {
+        return report(equipmentCode, pointCode, value, LocalDateTime.now());
+    }
+
+    public int report(String equipmentCode, String pointCode, double value, LocalDateTime collectedAt) {
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "select p.point_id, p.equipment_id, p.point_name, p.metric, p.unit, p.precision, " +
                         "p.warn_lower, p.warn_upper, p.alarm_lower, p.alarm_upper, " +
@@ -286,16 +290,50 @@ public class MonitorService {
         Map<String, Object> p = rows.get(0);
         Long equipmentId = ((Number) p.get("equipment_id")).longValue();
         Long pointId = ((Number) p.get("point_id")).longValue();
-        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        redis.opsForHash().put("monitor:latest:" + equipmentId, String.valueOf(pointId), value + "|" + ts);
-        redis.expire("monitor:latest:" + equipmentId, Duration.ofHours(24));
-        jdbc.update("update biz_equipment set last_heartbeat=now(), monitor_status='1' where equipment_id=?", equipmentId);
-        alarmService.recoverOffline(equipmentId);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime at = collectedAt == null || collectedAt.isAfter(now.plusMinutes(5)) ? now : collectedAt;
+        boolean live = !at.isBefore(now.minusMinutes(5));
+        String ts = at.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
 
-        EvalResult eval = evaluateAndRaise(p, value, rulesFor(p, activeRules()));
-        jdbc.update("insert into biz_monitor_data(equipment_id,point_id,metric,value,status,collect_time) values(?,?,?,?,?,now())",
-                equipmentId, pointId, p.get("metric"), value, eval.breach() ? "2" : "0");
+        EvalResult eval = new EvalResult(0, false);
+        if (live) {
+            redis.opsForHash().put("monitor:latest:" + equipmentId, String.valueOf(pointId), value + "|" + ts);
+            redis.expire("monitor:latest:" + equipmentId, Duration.ofHours(24));
+            jdbc.update("update biz_equipment set last_heartbeat=now(), monitor_status='1' where equipment_id=?", equipmentId);
+            alarmService.recoverOffline(equipmentId);
+            eval = evaluateAndRaise(p, value, rulesFor(p, activeRules()));
+        }
+        jdbc.update("insert into biz_monitor_data(equipment_id,point_id,metric,value,status,collect_time) values(?,?,?,?,?,?)",
+                equipmentId, pointId, p.get("metric"), value, eval.breach() ? "2" : "0", at);
         return 1;
+    }
+
+    /** 测试上报前的规则预览：不写数据、不触发告警。 */
+    public Map<String, Object> preview(String equipmentCode, String pointCode, double value) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select p.point_id, p.point_name, p.metric, p.unit, p.precision, " +
+                        "p.warn_lower, p.warn_upper, p.alarm_lower, p.alarm_upper, " +
+                        "e.equipment_name, e.company_id, e.device_type_id " +
+                        "from biz_monitor_point p join biz_equipment e on e.equipment_id=p.equipment_id " +
+                        "where e.equipment_code=? and p.point_code=?", equipmentCode, pointCode);
+        if (rows.isEmpty()) throw BizException.badRequest("设备或点位不存在：" + equipmentCode + "/" + pointCode);
+        Map<String, Object> p = rows.get(0);
+        Double lo = dbl(p.get("alarm_lower"));
+        Double hi = dbl(p.get("alarm_upper"));
+        boolean pointBreach = (lo != null && value < lo) || (hi != null && value > hi);
+        Map<String, Object> rule = matchRule(rulesFor(p, activeRules()), p);
+        boolean ruleViolated = rule != null && violates(rule, value);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("breach", pointBreach || ruleViolated);
+        result.put("ruleMatched", rule != null);
+        result.put("ruleName", rule == null ? "" : str(rule.get("rule_name")));
+        result.put("duration", rule == null ? 0 : num(rule.get("duration"), 0));
+        result.put("source", ruleViolated ? "rule" : pointBreach ? "point" : "normal");
+        result.put("message", ruleViolated
+                ? "命中告警规则[" + rule.get("rule_name") + "]，持续 " + num(rule.get("duration"), 0) + " 秒后触发"
+                : pointBreach ? "超出点位告警范围" : "未触发点位阈值或告警规则");
+        result.put("unit", str(p.get("unit")));
+        return result;
     }
 
     private List<Map<String, Object>> activeRules() {

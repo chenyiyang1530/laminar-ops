@@ -29,6 +29,9 @@
         <el-table-column prop="gatewayName" label="网关名称" min-width="160" />
         <el-table-column prop="protocol" label="协议" width="110" />
         <el-table-column prop="address" label="地址" min-width="170" show-overflow-tooltip />
+        <el-table-column prop="ipWhitelist" label="IP 白名单" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.ipWhitelist || '不限制' }}</template>
+        </el-table-column>
         <el-table-column label="Token" min-width="210">
           <template #default="{ row }">
             <span class="token">{{ mask(row.token) }}</span>
@@ -44,7 +47,8 @@
         <el-table-column label="操作" width="210" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" v-if="canEdit" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="primary" v-if="canEdit" @click="rotate(row)">轮换 Token</el-button>
+            <el-button link type="primary" v-if="canEdit" @click="rotate(row)">轮换</el-button>
+            <el-button link type="primary" @click="openTokenLogs(row)">审计</el-button>
             <el-button link type="danger" v-if="canEdit" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -58,10 +62,20 @@
       <div class="log-head">
         <div>
           <h3>最近测试记录</h3>
-          <p>最近 10 次测试上报结果</p>
+          <p>最多显示 10 条，可按设备、结果和时间筛选</p>
+        </div>
+        <div class="log-filters">
+          <el-select v-model="logFilter.equipmentCode" clearable filterable placeholder="全部设备" style="width: 190px" @change="loadTestLogs">
+            <el-option v-for="item in equipmentOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+          <el-select v-model="logFilter.result" clearable placeholder="全部结果" style="width: 110px" @change="loadTestLogs">
+            <el-option label="成功" value="1" />
+            <el-option label="失败" value="0" />
+          </el-select>
+          <el-date-picker v-model="logFilter.range" type="daterange" value-format="YYYY-MM-DD" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width: 240px" @change="loadTestLogs" />
         </div>
       </div>
-      <el-table :data="testLogs" size="small" class="log-table">
+      <el-table :data="testLogs" size="small" class="log-table" v-loading="testLogLoading">
         <el-table-column prop="createTime" label="时间" width="160" />
         <el-table-column prop="equipmentName" label="设备" min-width="150" show-overflow-tooltip />
         <el-table-column prop="pointName" label="点位" min-width="150" show-overflow-tooltip />
@@ -102,6 +116,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="网关地址"><el-input v-model="form.address" placeholder="如 192.168.10.20:502" /></el-form-item>
+        <el-form-item label="IP 白名单"><el-input v-model="form.ipWhitelist" type="textarea" :rows="2" placeholder="允许上报的 IP，逗号分隔；支持 192.168.1.*，留空不限制" /></el-form-item>
         <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
@@ -116,6 +131,20 @@
       <template #footer><el-button type="primary" @click="copy(issuedToken)">复制 Token</el-button></template>
     </el-dialog>
 
+    <el-dialog v-model="tokenLogVisible" :title="`Token 审计 · ${tokenLogTitle}`" width="600px">
+      <el-table :data="tokenLogs" size="small">
+        <el-table-column prop="createTime" label="时间" width="160" />
+        <el-table-column label="动作" width="90">
+          <template #default="{ row }">{{ row.action === 'CREATE' ? '生成' : '轮换' }}</template>
+        </el-table-column>
+        <el-table-column prop="operator" label="操作人" width="120" />
+        <el-table-column prop="tokenSuffix" label="Token 后 8 位" min-width="150">
+          <template #default="{ row }">…{{ row.tokenSuffix }}</template>
+        </el-table-column>
+      </el-table>
+      <div v-if="!tokenLogs.length" class="empty">暂无 Token 审计记录</div>
+    </el-dialog>
+
     <el-dialog v-model="testVisible" title="测试上报" width="560px">
       <el-form :model="testForm" label-width="92px">
         <el-form-item label="设备">
@@ -124,7 +153,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="监测点位">
-          <el-select v-model="testForm.pointCode" filterable :disabled="!testForm.equipmentCode" placeholder="选择监测点位" style="width: 100%">
+          <el-select v-model="testForm.pointCode" filterable :disabled="!testForm.equipmentCode" placeholder="选择监测点位" style="width: 100%" @change="scheduleRulePreview">
             <el-option v-for="item in pointOptions" :key="item.value" :label="item.label + (item.unit ? ` (${item.unit})` : '')" :value="item.value" />
           </el-select>
         </el-form-item>
@@ -133,13 +162,21 @@
             告警：{{ boundText(selectedPoint.alarmLower, selectedPoint.alarmUpper, selectedPoint.unit) }}
             <span>预警：{{ boundText(selectedPoint.warnLower, selectedPoint.warnUpper, selectedPoint.unit) }}</span>
           </div>
+          <div v-if="selectedPoint.latestTime" class="latest-value">
+            最近值：{{ selectedPoint.latestValue }}{{ selectedPoint.unit || '' }} · {{ selectedPoint.latestTime }}
+          </div>
         </el-form-item>
         <el-form-item label="测试值">
-          <el-input v-model="testForm.value" placeholder="例如 23.6">
+          <el-input v-model="testForm.value" placeholder="例如 23.6" @input="scheduleRulePreview">
             <template v-if="selectedPoint?.unit" #append>{{ selectedPoint.unit }}</template>
           </el-input>
         </el-form-item>
         <div v-if="preview" class="value-preview" :class="preview.type">{{ preview.text }}</div>
+        <div v-if="rulePreview" class="rule-preview" :class="{ danger: rulePreview.breach }">
+          <span class="rule-label">规则预览</span>
+          <span>{{ rulePreview.message }}</span>
+          <span v-if="rulePreview.ruleMatched" class="rule-name">已匹配：{{ rulePreview.ruleName }}</span>
+        </div>
       </el-form>
       <div v-if="!equipmentOptions.length && testVisible" class="empty">当前没有可测试的设备，请先在设备台账维护设备。</div>
       <div v-if="testResult" class="test-result">
@@ -174,6 +211,13 @@ const testResult = ref('')
 const equipmentOptions = ref([])
 const pointOptions = ref([])
 const testLogs = ref([])
+const testLogLoading = ref(false)
+const logFilter = reactive({ equipmentCode: '', result: '', range: [] })
+const rulePreview = ref(null)
+const previewTimer = ref(null)
+const tokenLogVisible = ref(false)
+const tokenLogTitle = ref('')
+const tokenLogs = ref([])
 const testForm = reactive({ equipmentCode: '', pointCode: '', value: '' })
 const selectedPoint = computed(() => pointOptions.value.find((p) => p.value === testForm.pointCode) || null)
 const preview = computed(() => {
@@ -242,6 +286,13 @@ async function rotate(row) {
   await load()
 }
 
+async function openTokenLogs(row) {
+  tokenLogTitle.value = row.gatewayName
+  tokenLogVisible.value = true
+  const res = await request.get(`/monitor/access/gateways/${row.gatewayId}/tokenLogs`)
+  tokenLogs.value = res.data || []
+}
+
 async function remove(row) {
   await ElMessageBox.confirm(`确认删除网关「${row.gatewayName}」？设备会解除绑定。`, '提示', { type: 'warning' })
   await request.delete(`/monitor/access/gateways/${row.gatewayId}`)
@@ -275,21 +326,56 @@ async function openTest() {
   testForm.pointCode = ''
   testForm.value = ''
   pointOptions.value = []
-  const res = await request.get('/monitor/access/test/equipment')
-  equipmentOptions.value = res.data || []
+  rulePreview.value = null
+  if (!equipmentOptions.value.length) await loadEquipmentOptions()
 }
 
 async function loadTestPoints() {
   testForm.pointCode = ''
   pointOptions.value = []
+  rulePreview.value = null
   if (!testForm.equipmentCode) return
   const res = await request.get('/monitor/access/test/points', { params: { equipmentCode: testForm.equipmentCode } })
   pointOptions.value = res.data || []
 }
 
+async function loadEquipmentOptions() {
+  const res = await request.get('/monitor/access/test/equipment')
+  equipmentOptions.value = res.data || []
+}
+
 async function loadTestLogs() {
-  const res = await request.get('/monitor/access/test/logs')
-  testLogs.value = res.data || []
+  testLogLoading.value = true
+  try {
+    const params = { result: logFilter.result || undefined }
+    if (logFilter.equipmentCode) params.equipmentCode = logFilter.equipmentCode
+    if (logFilter.range?.length === 2) {
+      params.startDate = logFilter.range[0]
+      params.endDate = logFilter.range[1]
+    }
+    const res = await request.get('/monitor/access/test/logs', { params })
+    testLogs.value = res.data || []
+  } finally {
+    testLogLoading.value = false
+  }
+}
+
+function scheduleRulePreview() {
+  if (previewTimer.value) clearTimeout(previewTimer.value)
+  rulePreview.value = null
+  if (!testForm.equipmentCode || !testForm.pointCode || testForm.value === '') return
+  previewTimer.value = setTimeout(async () => {
+    try {
+      const res = await request.post('/monitor/access/test/preview', {
+        equipmentCode: testForm.equipmentCode,
+        pointCode: testForm.pointCode,
+        value: testForm.value
+      })
+      rulePreview.value = res.data
+    } catch (e) {
+      rulePreview.value = { breach: false, message: e?.response?.data?.msg || '规则预览失败' }
+    }
+  }, 280)
 }
 
 async function copy(value) {
@@ -316,6 +402,7 @@ function boundText(lower, upper, unit = '') {
 
 onMounted(() => {
   load()
+  loadEquipmentOptions()
   loadTestLogs()
 })
 </script>
@@ -341,14 +428,21 @@ onMounted(() => {
 .test-result { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background: #f0f9ff; color: #0c4a6e; font-size: 12px; }
 .threshold-hint { color: #4b5563; font-size: 12px; line-height: 1.6; }
 .threshold-hint span { margin-left: 16px; color: #9ca3af; }
-.value-preview { margin: -2px 0 10px 92px; padding: 7px 10px; border-radius: 6px; font-size: 12px; background: #f8f9fa; color: #6b7280; }
+.latest-value { margin-top: 2px; color: #9ca3af; font-size: 11px; }
+.value-preview { margin: -2px 0 8px 92px; padding: 7px 10px; border-radius: 6px; font-size: 12px; background: #f8f9fa; color: #6b7280; }
 .value-preview.normal { background: #f0fdf4; color: #166534; }
 .value-preview.warning { background: #fffbeb; color: #92400e; }
 .value-preview.danger { background: #fef2f2; color: #b91c1c; }
 .value-preview.muted { background: #f8f9fa; color: #6b7280; }
+.rule-preview { margin: -2px 0 10px 92px; padding: 7px 10px; border-radius: 6px; background: #f8f9fa; color: #4b5563; font-size: 11px; line-height: 1.5; }
+.rule-preview.danger { background: #fff7ed; color: #9a3412; }
+.rule-label { font-weight: 600; margin-right: 8px; }
+.rule-name { margin-left: 8px; color: #9ca3af; }
 .test-log-section { margin-top: 18px; border: 1px solid var(--a-line); border-radius: 12px; background: #fff; padding: 16px 18px; }
+.log-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .log-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
 .log-head p { margin: 4px 0 10px; color: var(--a-mute); font-size: 11px; }
+.log-filters { display: flex; gap: 8px; flex-wrap: wrap; }
 .log-table :deep(.el-table__header th) { background: transparent; color: var(--a-mute); font-size: 11px; font-weight: 500; }
 .log-table :deep(.el-table__inner-wrapper::before) { display: none; }
 .log-muted { color: #9ca3af; font-size: 11px; }
