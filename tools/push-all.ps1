@@ -23,36 +23,44 @@ function Get-Value($name, $secrets) {
     return $value
 }
 
+function Push-WithToken($remote, $username, $token) {
+    $pair = "${username}:${token}"
+    $basic = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair))
+    Write-Host "Pushing $remote ..." -ForegroundColor Cyan
+    & git -c http.sslBackend=schannel -c "http.extraHeader=Authorization: Basic $basic" push $remote main
+    return ($LASTEXITCODE -eq 0)
+}
+
 $secrets = Read-Secrets
 $githubToken = Get-Value 'GITHUB_TOKEN' $secrets
 $giteeToken = Get-Value 'GITEE_TOKEN' $secrets
 $giteeUser = Get-Value 'GITEE_USERNAME' $secrets
 if (!$giteeUser) { $giteeUser = 'chenyiyang1530' }
 
-if (!$githubToken -or !$giteeToken) {
-    Write-Host '缺少凭据：请在 .secrets.local 中配置 GITHUB_TOKEN 和 GITEE_TOKEN。' -ForegroundColor Yellow
-    Write-Host 'GitHub Token 需要 Contents: Read and write；Gitee Token 需要 projects 权限。' -ForegroundColor Yellow
-    exit 2
+$pushed = @()
+$failed = @()
+if ($githubToken) {
+    if (Push-WithToken 'origin' 'x-access-token' $githubToken) { $pushed += 'github' } else { $failed += 'github' }
+} else {
+    Write-Host 'GitHub: 未配置 GITHUB_TOKEN，跳过。' -ForegroundColor Yellow
+}
+if ($giteeToken) {
+    if (Push-WithToken 'gitee' $giteeUser $giteeToken) { $pushed += 'gitee' } else { $failed += 'gitee' }
+} else {
+    Write-Host 'Gitee: 未配置 GITEE_TOKEN，跳过；请配置一次后会自动复用。' -ForegroundColor Yellow
 }
 
-function Push-WithToken($remote, $username, $token) {
-    $pair = "${username}:${token}"
-    $basic = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair))
-    Write-Host "Pushing $remote ..." -ForegroundColor Cyan
-    & git -c http.sslBackend=schannel -c "http.extraHeader=Authorization: Basic $basic" push $remote main
-    if ($LASTEXITCODE -ne 0) { throw "push $remote failed" }
-}
-
-Push-WithToken 'origin' 'x-access-token' $githubToken
-Push-WithToken 'gitee' $giteeUser $giteeToken
+if (!$pushed.Count) { exit 2 }
 
 $local = (git rev-parse HEAD).Trim()
-$github = (git ls-remote origin refs/heads/main).Split("`t")[0]
-$gitee = (git ls-remote gitee refs/heads/main).Split("`t")[0]
-Write-Host "local  = $local"
-Write-Host "github = $github"
-Write-Host "gitee  = $gitee"
-if ($local -ne $github -or $local -ne $gitee) {
-    throw '远程 HEAD 不一致，请检查推送结果'
+Write-Host "local = $local"
+foreach ($remote in $pushed) {
+    $remoteHead = (git -c http.sslBackend=schannel ls-remote $remote refs/heads/main).Split("`t")[0]
+    Write-Host "$remote = $remoteHead"
+    if ($local -ne $remoteHead) { $failed += $remote }
 }
-Write-Host 'GitHub 和 Gitee 已同步。' -ForegroundColor Green
+if ($failed.Count) {
+    Write-Host ("推送失败: " + ($failed -join ', ')) -ForegroundColor Red
+    exit 1
+}
+Write-Host ("已同步: " + ($pushed -join ', ')) -ForegroundColor Green
