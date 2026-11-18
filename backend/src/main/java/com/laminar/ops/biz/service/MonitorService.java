@@ -277,7 +277,7 @@ public class MonitorService {
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "select p.point_id, p.equipment_id, p.point_name, p.metric, p.unit, p.precision, " +
                         "p.warn_lower, p.warn_upper, p.alarm_lower, p.alarm_upper, " +
-                        "e.equipment_name, e.hospital_id, e.campus_id, e.department_id, e.device_type_id " +
+                        "e.equipment_name, e.hospital_id, e.campus_id, e.department_id, e.device_type_id, e.company_id " +
                         "from biz_monitor_point p join biz_equipment e on e.equipment_id = p.equipment_id " +
                         "where e.equipment_code = ? and p.point_code = ?", equipmentCode, pointCode);
         if (rows.isEmpty()) {
