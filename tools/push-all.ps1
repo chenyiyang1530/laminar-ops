@@ -94,9 +94,9 @@ Write-Host "github = $originHead"
 Write-Host "gitee  = $giteeHead"
 Write-Host "log    = $logFile"
 
-foreach ($remote in $pushed) {
-    $head = if ($remote -eq 'origin') { $originHead } else { $giteeHead }
-    if ($local -ne $head) { $failed += "$remote(head mismatch)" }
+foreach ($target in $pushed) {
+    $head = if ($target -eq 'origin') { $originHead } else { $giteeHead }
+    if ($local -ne $head) { $failed += "$target(head mismatch)" }
 }
 
 if (!$NoOpen -and !$env:CI) {
