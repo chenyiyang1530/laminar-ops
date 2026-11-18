@@ -288,6 +288,7 @@ public class MonitorService {
             throw BizException.badRequest("设备或点位不存在：" + equipmentCode + "/" + pointCode);
         }
         Map<String, Object> p = rows.get(0);
+        qualityCheck(str(p.get("metric")), value);
         Long equipmentId = ((Number) p.get("equipment_id")).longValue();
         Long pointId = ((Number) p.get("point_id")).longValue();
         LocalDateTime now = LocalDateTime.now();
@@ -484,6 +485,25 @@ public class MonitorService {
             case "vacuum" -> Math.min(-1, v);
             default -> v;
         };
+    }
+
+    /** 基础数据质量：拒绝明显不可能的量测值，避免污染曲线和告警。 */
+    private void qualityCheck(String metric, double value) {
+        double min = -Double.MAX_VALUE;
+        double max = Double.MAX_VALUE;
+        switch (metric) {
+            case "temperature" -> { min = -50; max = 100; }
+            case "humidity" -> { min = 0; max = 100; }
+            case "pressure" -> { min = -100000; max = 100000; }
+            case "wind_speed" -> { min = 0; max = 100; }
+            case "particle" -> { min = 0; max = 10000000; }
+            case "oxygen_pressure" -> { min = 0; max = 100; }
+            case "vacuum" -> { min = -100; max = 0; }
+            default -> { return; }
+        }
+        if (value < min || value > max) {
+            throw BizException.badRequest("数据越界，已过滤：" + metric + "=" + value + "，允许范围 " + min + "~" + max);
+        }
     }
 
     private String trim(Double v) {
