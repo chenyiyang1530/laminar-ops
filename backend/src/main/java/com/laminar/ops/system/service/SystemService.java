@@ -27,6 +27,7 @@ public class SystemService {
     private final JdbcTemplate jdbc;
     private final DataScopeService dataScope;
     private final SysConfigService sysConfig;
+    private final RoleAuditLogger roleAuditLogger;
 
     private static final List<String> RESERVED_ROLE_KEYS = List.of(
             "super_admin", "hospital_admin", "hospital_dept", "hospital_sub_admin",
@@ -163,18 +164,18 @@ public class SystemService {
         pageArgs.add(Math.max(0, (pageNum - 1) * pageSize));
         List<Map<String, Object>> records = jdbc.queryForList(
                 "select u.user_id as `userId`, u.username, u.nick_name as `nickName`, u.phone, u.email, u.gender, " +
-                        "u.dept_id as `deptId`, u.post_id as `postId`, u.company_id as `companyId`, u.user_type as `userType`, u.status, " +
+                        "u.dept_id as `deptId`, u.post_id as `postId`, u.company_id as `companyId`, u.user_type as `userType`, u.account_scope as `accountScope`, u.status, " +
                         "date_format(u.login_date,'%Y-%m-%d %H:%i') as `loginDate`, u.login_ip as `loginIp`, " +
                         "d.dept_name as `deptName`, p.post_name as `postName`, c.company_name as `companyName`, " +
                         "hh.hospital_name as `hospitalName`, " +
-                        "eng.engineer_id as `engineerId`, eng.engineer_name as `engineerName`, " +
-                        "(select group_concat(r.role_name separator '、') from sys_user_role ur join sys_role r on r.role_id=ur.role_id " +
-                        "where ur.user_id=u.user_id) as `roleNames` " +
+                        "eng.engineer_id as `engineerId`, eng.engineer_name as `engineerName`, rn.roleNames as `roleNames` " +
                         "from sys_user u left join sys_dept d on d.dept_id=u.dept_id left join sys_post p on p.post_id=u.post_id " +
                         "left join biz_company c on c.company_id=u.company_id " +
                         "left join biz_engineer eng on eng.user_id=u.user_id " +
                         "left join biz_hospital_user hu on hu.user_id=u.user_id " +
                         "left join biz_hospital hh on hh.hospital_id=hu.hospital_id " +
+                        "left join (select ur.user_id, group_concat(r.role_name separator '、') as roleNames " +
+                        "from sys_user_role ur join sys_role r on r.role_id=ur.role_id group by ur.user_id) rn on rn.user_id=u.user_id " +
                         where + " order by u.user_id limit ? offset ?", pageArgs.toArray());
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("records", records);
@@ -185,7 +186,7 @@ public class SystemService {
     public Map<String, Object> userDetail(Long id) {
         Map<String, Object> user = jdbc.queryForMap(
                 "select u.user_id as `userId`, u.username, u.nick_name as `nickName`, u.phone, u.email, u.gender, " +
-                        "u.dept_id as `deptId`, u.post_id as `postId`, u.company_id as `companyId`, u.status, u.remark, " +
+                        "u.dept_id as `deptId`, u.post_id as `postId`, u.company_id as `companyId`, u.account_scope as `accountScope`, u.status, u.remark, " +
                         "eng.engineer_id as `engineerId`, eng.engineer_name as `engineerName` " +
                         "from sys_user u left join biz_engineer eng on eng.user_id=u.user_id where u.user_id=?", id);
         Long companyId = dataScope.companyId(AuthContext.require());
@@ -248,11 +249,14 @@ public class SystemService {
             validateUserEngineerBinding(companyId, null, body);
         }
         String userType = hospitalRole ? "2" : "1";
-        jdbc.update("insert into sys_user(username,password,must_change_pwd,nick_name,phone,email,gender,dept_id,post_id,company_id,user_type,status,create_time) " +
-                        "values(?,?,1,?,?,?,?,?,?,?,?,'0',now())", username, PasswordUtil.encode(initialPassword()),
+        String accountScope = hospitalRole ? "hospital" : (companyId == null ? "platform" : "company");
+        jdbc.update("insert into sys_user(username,password,must_change_pwd,nick_name,phone,email,gender,dept_id,post_id,company_id,user_type,status,create_time,account_scope,owner_company_id,owner_hospital_id,owner_department_id) " +
+                        "values(?,?,1,?,?,?,?,?,?,?,?,'0',now(),?,?,?,?)", username, PasswordUtil.encode(initialPassword()),
                 nickName, phone, email,
                 str(body.getOrDefault("gender", "0")), hospitalRole ? null : body.get("deptId"),
-                hospitalRole ? null : body.get("postId"), companyId, userType);
+                hospitalRole ? null : body.get("postId"), companyId, userType,
+                accountScope, "company".equals(accountScope) ? companyId : null, hospitalRole ? hospitalId : null,
+                hospitalRole ? hospitalDepartmentId : null);
         Long id = hospitalRole
                 ? jdbc.queryForObject("select user_id from sys_user where username=? order by user_id desc limit 1", Long.class, username)
                 : jdbc.queryForObject("select user_id from sys_user where username=? and company_id=?", Long.class, username, companyId);
@@ -311,22 +315,26 @@ public class SystemService {
                 "select phone,email,phone_verified,email_verified from sys_user where user_id=?", id);
         int phoneVerified = Objects.equals(normalizeContact(old.get("phone")), phone) && intVal(old.get("phone_verified")) == 1 ? 1 : 0;
         int emailVerified = Objects.equals(normalizeContact(old.get("email")), email) && intVal(old.get("email_verified")) == 1 ? 1 : 0;
+        String accountScope = hospitalRole ? "hospital" : (companyId == null ? "platform" : "company");
         jdbc.update("update sys_user set nick_name=?,phone=?,email=?,gender=?,dept_id=?,post_id=?,company_id=?,status=?," +
                         "phone_verified=?,phone_verified_at=case when ?=1 then coalesce(phone_verified_at,now()) else null end," +
-                        "email_verified=?,email_verified_at=case when ?=1 then coalesce(email_verified_at,now()) else null end " +
+                        "email_verified=?,email_verified_at=case when ?=1 then coalesce(email_verified_at,now()) else null end," +
+                        "account_scope=?,owner_company_id=?,owner_hospital_id=?,owner_department_id=? " +
                         "where user_id=?",
                 nickName, phone, email,
                 str(body.getOrDefault("gender", "0")), hospitalRole ? null : body.get("deptId"),
                 hospitalRole ? null : body.get("postId"),
                 companyId, str(body.getOrDefault("status", "0")),
-                phoneVerified, phoneVerified, emailVerified, emailVerified, id);
+                phoneVerified, phoneVerified, emailVerified, emailVerified,
+                accountScope, "company".equals(accountScope) ? companyId : null,
+                hospitalRole ? hospitalId : null, hospitalRole ? hospitalDepartmentId : null, id);
         if (body.containsKey("roleIds")) {
             List<Long> beforeRoles = jdbc.queryForList(
                     "select role_id from sys_user_role where user_id=?", Long.class, id);
             validateRoleAssignments(companyId, roleIds);
             jdbc.update("delete from sys_user_role where user_id=?", id);
             saveRoles(id, roleIds);
-            logRemovedRoles(id, beforeRoles, roleIds);
+            roleAuditLogger.logRemoved(id, beforeRoles, roleIds);
         }
         if (hospitalId != null) validateHospitalCompany(hospitalId, companyId);
         if (body.containsKey("roleIds") || body.containsKey("hospitalId")) {
@@ -348,7 +356,7 @@ public class SystemService {
             if (id == 1L) throw BizException.badRequest("超级管理员不可删除");
             assertCanManageUser(id, false);
             for (Long roleId : jdbc.queryForList("select role_id from sys_user_role where user_id=?", Long.class, id)) {
-                logRoleAssign(roleId, id, "revoke", "删除用户时移除角色");
+                roleAuditLogger.log(roleId, id, "revoke", "删除用户时移除角色");
             }
             jdbc.update("update biz_engineer set user_id=null where user_id=?", id);
             jdbc.update("delete from sys_user_role where user_id=?", id);
@@ -591,26 +599,12 @@ public class SystemService {
         }
     }
 
-    private void logRemovedRoles(Long userId, List<Long> before, Object afterRoleIds) {
-        List<Long> after = new ArrayList<>();
-        if (afterRoleIds instanceof List<?> list) {
-            for (Object item : list) {
-                if (item != null) after.add(((Number) item).longValue());
-            }
-        }
-        for (Long roleId : before) {
-            if (!after.contains(roleId)) {
-                logRoleAssign(roleId, userId, "revoke", "移除角色");
-            }
-        }
-    }
-
     private void saveRoles(Long userId, Object roleIds) {
         if (roleIds instanceof List<?> list) {
             for (Object r : list) {
                 Long roleId = ((Number) r).longValue();
                 jdbc.update("insert ignore into sys_user_role(user_id,role_id) values(?,?)", userId, roleId);
-                logRoleAssign(roleId, userId, "assign", "分配角色");
+                roleAuditLogger.log(roleId, userId, "assign", "分配角色");
             }
         }
     }
@@ -653,16 +647,6 @@ public class SystemService {
         result.put("records", records);
         result.put("total", total == null ? 0 : total);
         return result;
-    }
-
-    private void logRoleAssign(Long roleId, Long userId, String action, String detail) {
-        LoginUser user = AuthContext.require();
-        Long operatorId = user == null ? null : user.getUserId();
-        String operatorName = user == null ? "system" : user.getNickName();
-        String roleName = jdbc.queryForObject("select role_name from sys_role where role_id=?", String.class, roleId);
-        jdbc.update("insert into sys_role_assign_log(role_id,role_name_snapshot,user_id,action,operator_id,operator_name,detail) " +
-                        "values(?,?,?,?,?,?,?)",
-                roleId, roleName, userId, action, operatorId, operatorName, detail);
     }
 
     private void applyRoleDefaultDept(Long userId, Long companyId) {
@@ -718,7 +702,7 @@ public class SystemService {
         Long createdId = jdbc.queryForObject(
                 "select role_id from sys_role where role_key=? and company_id <=> ? order by role_id desc limit 1",
                 Long.class, roleKey, companyId);
-        if (createdId != null) logRoleAssign(createdId, null, "create", "创建角色");
+        if (createdId != null) roleAuditLogger.log(createdId, null, "create", "创建角色");
     }
 
     public void updateRole(Map<String, Object> body) {
@@ -741,7 +725,7 @@ public class SystemService {
                 str(body.get("roleName")), roleKey, body.getOrDefault("sort", 0),
                 str(body.getOrDefault("dataScope", "self")), str(body.getOrDefault("status", "0")),
                 str(body.get("remark")), companyId == null ? str(body.getOrDefault("assignable", "1")) : currentAssignable(roleId), roleId);
-        logRoleAssign(roleId, null, "update", "修改角色");
+        roleAuditLogger.log(roleId, null, "update", "修改角色");
     }
 
     public void deleteRole(Long id) {
@@ -753,7 +737,7 @@ public class SystemService {
         }
         String roleType = jdbc.queryForObject("select role_type from sys_role where role_id=?", String.class, id);
         if ("standard".equals(roleType)) throw BizException.badRequest("标准角色不可删除");
-        logRoleAssign(id, null, "delete", "删除角色");
+        roleAuditLogger.log(id, null, "delete", "删除角色");
         jdbc.update("delete from sys_role_menu where role_id=?", id);
         jdbc.update("delete from sys_user_role where role_id=?", id);
         jdbc.update("delete from sys_role where role_id=?", id);
@@ -1204,6 +1188,8 @@ public class SystemService {
         return o == null ? 0 : ((Number) o).intValue();
     }
 }
+
+
 
 
 

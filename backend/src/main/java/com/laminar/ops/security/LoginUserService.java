@@ -52,6 +52,14 @@ public class LoginUserService {
                 .collect(Collectors.toSet()));
         loginUser.setDataScope(resolveScope(roles));
         loginUser.setCompanyId(user.getCompanyId());
+        if ("2".equals(user.getUserType())) {
+            loginUser.setAccountScope("hospital");
+        } else if (roleKeys.contains("super_admin") || user.getCompanyId() == null) {
+            loginUser.setAccountScope("platform");
+        } else {
+            loginUser.setAccountScope("company");
+        }
+        loginUser.setOwnerCompanyId("company".equals(loginUser.getAccountScope()) ? user.getCompanyId() : null);
         loginUser.setMustChangePassword(user.getMustChangePwd() != null && user.getMustChangePwd() == 1);
 
         if (roleKeys.contains("super_admin")) {
@@ -70,6 +78,8 @@ public class LoginUserService {
         if (hu != null && "0".equals(hu.getStatus())) {
             loginUser.setHospitalId(hu.getHospitalId());
             loginUser.setDepartmentId(hu.getDepartmentId());
+            loginUser.setOwnerHospitalId(hu.getHospitalId());
+            loginUser.setOwnerDepartmentId(hu.getDepartmentId());
         }
         return loginUser;
     }

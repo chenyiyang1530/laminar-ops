@@ -3,7 +3,9 @@ package com.laminar.ops.system.controller;
 import com.laminar.ops.biz.task.DynamicJobScheduler;
 import com.laminar.ops.common.Result;
 import com.laminar.ops.security.Perm;
+import com.laminar.ops.system.dto.RoleAssignLogQuery;
 import com.laminar.ops.system.service.SystemService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -139,10 +141,8 @@ public class SystemController {
     @GetMapping("/role/{id}/assignmentLogs")
     @Perm("system:role:list")
     public Result<Map<String, Object>> roleAssignLogs(@PathVariable Long id,
-                                                      @RequestParam(required = false) String action,
-                                                      @RequestParam(defaultValue = "1") Integer pageNum,
-                                                      @RequestParam(defaultValue = "10") Integer pageSize) {
-        return Result.ok(systemService.roleAssignLogs(id, action, pageNum, pageSize));
+                                                      @Valid RoleAssignLogQuery query) {
+        return Result.ok(systemService.roleAssignLogs(id, query.getAction(), query.getPageNum(), query.getPageSize()));
     }
 
     @PutMapping("/role/{id}/menus")

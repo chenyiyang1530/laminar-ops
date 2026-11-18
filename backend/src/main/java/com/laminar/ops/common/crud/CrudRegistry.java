@@ -40,6 +40,32 @@ public final class CrudRegistry {
         MAP.put(def.getKey(), def);
     }
 
+    private static void validate() {
+        for (ResourceDef def : MAP.values()) {
+            if (def.getKey() == null || def.getKey().isBlank()
+                    || def.getTable() == null || def.getTable().isBlank()
+                    || def.getPk() == null || def.getPk().isBlank()
+                    || def.getPermPrefix() == null || def.getPermPrefix().isBlank()) {
+                throw new IllegalStateException("CRUD 资源定义缺少 key/table/pk/perm: " + def.getKey());
+            }
+            if (def.getFields() == null || def.getFields().isEmpty()) {
+                throw new IllegalStateException("CRUD 资源缺少字段定义: " + def.getKey());
+            }
+            long names = def.getFields().stream().map(FieldDef::getName).distinct().count();
+            long columns = def.getFields().stream().map(FieldDef::getColumn).distinct().count();
+            if (names != def.getFields().size() || columns != def.getFields().size()) {
+                throw new IllegalStateException("CRUD 资源存在重复字段: " + def.getKey());
+            }
+            if (def.getFields().stream().noneMatch(f -> def.getPk().equals(f.getColumn()))) {
+                throw new IllegalStateException("CRUD 资源缺少主键字段: " + def.getKey());
+            }
+            if (def.getNameColumn() != null
+                    && def.getFields().stream().noneMatch(f -> def.getNameColumn().equals(f.getColumn()))) {
+                throw new IllegalStateException("CRUD 资源缺少名称字段: " + def.getKey());
+            }
+        }
+    }
+
     static {
         register(ResourceDef.of("company", "biz_company", "company_id", "维保公司", "customer:company", "company_name")
                 .noHospitalScope()
@@ -502,6 +528,7 @@ public final class CrudRegistry {
                 .field(FieldDef.of("dictSort", "dict_sort", "排序").type("number").width(80))
                 .field(FieldDef.of("listClass", "list_class", "标签样式").width(110))
                 .field(statusField()));
+        validate();
     }
 }
 

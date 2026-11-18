@@ -15,6 +15,10 @@ public class LoginUser implements Serializable {
     private String avatar;
     /** 0 超管 1 公司 2 院方 */
     private String userType;
+    private String accountScope;
+    private Long ownerCompanyId;
+    private Long ownerHospitalId;
+    private Long ownerDepartmentId;
     private Long hospitalId;
     private Long departmentId;
     private Long deptId;
@@ -35,6 +39,14 @@ public class LoginUser implements Serializable {
     }
 
     public boolean isHospitalUser() {
-        return "2".equals(userType);
+        return "hospital".equals(accountScope) || (accountScope == null && "2".equals(userType));
+    }
+
+    public boolean isPlatformAccount() {
+        return "platform".equals(accountScope) || isSuperAdmin();
+    }
+
+    public boolean isCompanyAccount() {
+        return "company".equals(accountScope) || (accountScope == null && "1".equals(userType) && companyId != null);
     }
 }
