@@ -40,7 +40,7 @@ if (!$giteeUser) { $giteeUser = 'chenyiyang1530' }
 $pushed = @()
 $failed = @()
 if ($githubToken) {
-    if (Push-WithToken 'origin' 'x-access-token' $githubToken) { $pushed += 'github' } else { $failed += 'github' }
+    if (Push-WithToken 'origin' 'x-access-token' $githubToken) { $pushed += 'origin' } else { $failed += 'github' }
 } else {
     Write-Host 'GitHub: 未配置 GITHUB_TOKEN，跳过。' -ForegroundColor Yellow
 }
