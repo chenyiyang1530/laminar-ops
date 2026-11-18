@@ -89,6 +89,8 @@ test('院方管理员只能创建院方子管理员和科室用户', async ({ re
   const record = ((await rows.json()).data.records || []).find((row) => row.username === username)
   expect(record).toBeTruthy()
   expect(record.roleNames).toContain('院方子管理员')
+  const reset = await request.put(`/api/system/user/${record.userId}/resetPwd`, { headers: hospitalHeaders })
+  expect((await reset.json()).code).toBe(200)
   await request.delete(`/api/system/user/${record.userId}`, { headers })
 })
 

@@ -195,6 +195,15 @@ public class SystemService {
                 || !companyId.equals(((Number) targetCompany).longValue()))) {
             throw BizException.forbidden("无权访问其他公司用户");
         }
+        LoginUser actor = AuthContext.require();
+        if (actor.isHospitalUser()) {
+            List<Long> targetHospitals = jdbc.queryForList(
+                    "select hospital_id from biz_hospital_user where user_id=?", Long.class, id);
+            if (targetHospitals.isEmpty() || actor.getHospitalId() == null
+                    || !actor.getHospitalId().equals(targetHospitals.get(0))) {
+                throw BizException.forbidden("无权访问其他医院账号");
+            }
+        }
         user.put("roleIds", jdbc.queryForList("select role_id from sys_user_role where user_id=?", Long.class, id));
         List<Long> hospitalIds = jdbc.queryForList(
                 "select hospital_id from biz_hospital_user where user_id=?", Long.class, id);
@@ -587,6 +596,21 @@ public class SystemService {
         LoginUser actor = AuthContext.require();
         if (actor.isSuperAdmin()) return;
         if (allowSelf && targetId.equals(actor.getUserId())) return;
+        if (actor.isHospitalUser()) {
+            if (!actor.getRoleKeys().contains("hospital_admin")) {
+                throw BizException.forbidden("院方子管理员无权管理账号");
+            }
+            List<Long> targetHospitals = jdbc.queryForList(
+                    "select hospital_id from biz_hospital_user where user_id=?", Long.class, targetId);
+            if (targetHospitals.isEmpty() || actor.getHospitalId() == null
+                    || !actor.getHospitalId().equals(targetHospitals.get(0))) {
+                throw BizException.forbidden("无权操作其他医院账号");
+            }
+            if (userRank(actor) <= targetRank(targetId)) {
+                throw BizException.forbidden("无权操作同级或更高权限用户");
+            }
+            return;
+        }
         Long actorCompany = dataScope.companyId(actor);
         List<Long> targetCompanies = jdbc.queryForList(
                 "select company_id from sys_user where user_id=?", Long.class, targetId);
