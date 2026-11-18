@@ -37,6 +37,7 @@ DELETE FROM biz_workorder WHERE title LIKE 'E2E-%';
 DELETE FROM biz_document WHERE doc_name LIKE 'E2E%';
 DELETE FROM biz_hospital_user WHERE user_id IN (SELECT user_id FROM sys_user WHERE username LIKE 'e2e_%');
 DELETE FROM sys_user_role WHERE user_id IN (SELECT user_id FROM sys_user WHERE username LIKE 'e2e_%');
+DELETE FROM biz_monitor_test_log WHERE operator LIKE 'e2e_%';
 DELETE FROM biz_engineer WHERE engineer_name='E2E工程师';
 DELETE FROM sys_user WHERE username LIKE 'e2e_%';
 DELETE FROM biz_department WHERE dept_code LIKE 'E2E-%';

@@ -75,6 +75,12 @@ public class MonitorAccessController {
         return Result.ok(gatewayService.testPointOptions(equipmentCode));
     }
 
+    @GetMapping("/test/logs")
+    @Perm("device:equipment:list")
+    public Result<List<Map<String, Object>>> testLogs() {
+        return Result.ok(gatewayService.testLogs());
+    }
+
     @PostMapping("/test")
     @Perm("device:equipment:edit")
     public Result<Map<String, Object>> test(@RequestBody Map<String, Object> body) {

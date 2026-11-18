@@ -54,6 +54,39 @@
       </div>
     </div>
 
+    <div class="test-log-section">
+      <div class="log-head">
+        <div>
+          <h3>最近测试记录</h3>
+          <p>最近 10 次测试上报结果</p>
+        </div>
+      </div>
+      <el-table :data="testLogs" size="small" class="log-table">
+        <el-table-column prop="createTime" label="时间" width="160" />
+        <el-table-column prop="equipmentName" label="设备" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="pointName" label="点位" min-width="150" show-overflow-tooltip />
+        <el-table-column label="测试值" width="110">
+          <template #default="{ row }">{{ row.value }}{{ row.unit || '' }}</template>
+        </el-table-column>
+        <el-table-column label="结果" width="88">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.result === '1' ? 'success' : 'danger'" effect="plain">
+              {{ row.result === '1' ? '成功' : '失败' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="告警" width="76">
+          <template #default="{ row }">
+            <el-tag v-if="row.alarmTriggered === '1'" size="small" type="warning" effect="plain">触发</el-tag>
+            <span v-else class="log-muted">未触发</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="message" label="说明" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="operator" label="操作人" width="110" show-overflow-tooltip />
+      </el-table>
+      <div v-if="!testLogs.length" class="empty">暂无测试记录</div>
+    </div>
+
     <el-dialog v-model="dialog" :title="form.gatewayId ? '编辑网关' : '新增网关'" width="560px">
       <el-form :model="form" label-width="92px">
         <el-form-item label="网关编码" required><el-input v-model="form.gatewayCode" placeholder="例如 GW-AHU-01" /></el-form-item>
@@ -92,10 +125,21 @@
         </el-form-item>
         <el-form-item label="监测点位">
           <el-select v-model="testForm.pointCode" filterable :disabled="!testForm.equipmentCode" placeholder="选择监测点位" style="width: 100%">
-            <el-option v-for="item in pointOptions" :key="item.value" :label="item.label" :value="item.value" />
+            <el-option v-for="item in pointOptions" :key="item.value" :label="item.label + (item.unit ? ` (${item.unit})` : '')" :value="item.value" />
           </el-select>
         </el-form-item>
-        <el-form-item label="测试值"><el-input v-model="testForm.value" placeholder="例如 23.6" /></el-form-item>
+        <el-form-item v-if="selectedPoint" label="阈值提示">
+          <div class="threshold-hint">
+            告警：{{ boundText(selectedPoint.alarmLower, selectedPoint.alarmUpper, selectedPoint.unit) }}
+            <span>预警：{{ boundText(selectedPoint.warnLower, selectedPoint.warnUpper, selectedPoint.unit) }}</span>
+          </div>
+        </el-form-item>
+        <el-form-item label="测试值">
+          <el-input v-model="testForm.value" placeholder="例如 23.6">
+            <template v-if="selectedPoint?.unit" #append>{{ selectedPoint.unit }}</template>
+          </el-input>
+        </el-form-item>
+        <div v-if="preview" class="value-preview" :class="preview.type">{{ preview.text }}</div>
       </el-form>
       <div v-if="!equipmentOptions.length && testVisible" class="empty">当前没有可测试的设备，请先在设备台账维护设备。</div>
       <div v-if="testResult" class="test-result">
@@ -110,7 +154,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
 import { useUserStore } from '@/store/user'
@@ -129,7 +173,21 @@ const testing = ref(false)
 const testResult = ref('')
 const equipmentOptions = ref([])
 const pointOptions = ref([])
+const testLogs = ref([])
 const testForm = reactive({ equipmentCode: '', pointCode: '', value: '' })
+const selectedPoint = computed(() => pointOptions.value.find((p) => p.value === testForm.pointCode) || null)
+const preview = computed(() => {
+  const p = selectedPoint.value
+  const value = Number(testForm.value)
+  if (!p || testForm.value === '' || Number.isNaN(value)) return null
+  const hasThreshold = [p.alarmLower, p.alarmUpper, p.warnLower, p.warnUpper].some((v) => v != null)
+  if (!hasThreshold) return { type: 'muted', text: '该点位未配置阈值，无法提前判断；以告警规则和实际上报结果为准' }
+  const alarm = (p.alarmLower != null && value < Number(p.alarmLower)) || (p.alarmUpper != null && value > Number(p.alarmUpper))
+  const warn = (p.warnLower != null && value < Number(p.warnLower)) || (p.warnUpper != null && value > Number(p.warnUpper))
+  if (alarm) return { type: 'danger', text: '当前值超出告警范围，发送后会触发告警' }
+  if (warn) return { type: 'warning', text: '当前值超出预警范围，尚未达到告警阈值' }
+  return { type: 'normal', text: '当前值在正常范围内' }
+})
 
 async function load() {
   loading.value = true
@@ -200,9 +258,11 @@ async function runTest() {
   testResult.value = ''
   try {
     const res = await request.post('/monitor/access/test', testForm)
-    testResult.value = `上报成功：写入 ${res.data.count} 个点位，当前值 ${res.data.value}`
+    const d = res.data
+    testResult.value = `${d.message}（写入 ${d.count} 个点位，当前值 ${d.value}${d.unit || ''}）`
+    await loadTestLogs()
   } catch (e) {
-    testResult.value = '上报失败，请检查设备、点位和模拟开关'
+    testResult.value = e?.response?.data?.msg || e?.message || '上报失败，请检查设备、点位和模拟开关'
   } finally {
     testing.value = false
   }
@@ -227,6 +287,11 @@ async function loadTestPoints() {
   pointOptions.value = res.data || []
 }
 
+async function loadTestLogs() {
+  const res = await request.get('/monitor/access/test/logs')
+  testLogs.value = res.data || []
+}
+
 async function copy(value) {
   if (!value) return
   try {
@@ -242,7 +307,17 @@ function mask(token) {
   return token.length > 14 ? `${token.slice(0, 10)}…${token.slice(-4)}` : token
 }
 
-onMounted(load)
+function boundText(lower, upper, unit = '') {
+  if (lower == null && upper == null) return '未配置'
+  if (lower != null && upper != null) return `${lower} ~ ${upper}${unit}`
+  if (lower != null) return `≥ ${lower}${unit}`
+  return `≤ ${upper}${unit}`
+}
+
+onMounted(() => {
+  load()
+  loadTestLogs()
+})
 </script>
 
 <style scoped>
@@ -264,4 +339,17 @@ onMounted(load)
 .empty { padding: 22px; text-align: center; color: #9ca3af; font-size: 12px; }
 .token-box { margin-top: 16px; padding: 14px; border: 1px dashed #d1d5db; border-radius: 8px; background: #f8f9fa; font-family: Consolas, monospace; font-size: 12px; word-break: break-all; }
 .test-result { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background: #f0f9ff; color: #0c4a6e; font-size: 12px; }
+.threshold-hint { color: #4b5563; font-size: 12px; line-height: 1.6; }
+.threshold-hint span { margin-left: 16px; color: #9ca3af; }
+.value-preview { margin: -2px 0 10px 92px; padding: 7px 10px; border-radius: 6px; font-size: 12px; background: #f8f9fa; color: #6b7280; }
+.value-preview.normal { background: #f0fdf4; color: #166534; }
+.value-preview.warning { background: #fffbeb; color: #92400e; }
+.value-preview.danger { background: #fef2f2; color: #b91c1c; }
+.value-preview.muted { background: #f8f9fa; color: #6b7280; }
+.test-log-section { margin-top: 18px; border: 1px solid var(--a-line); border-radius: 12px; background: #fff; padding: 16px 18px; }
+.log-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.log-head p { margin: 4px 0 10px; color: var(--a-mute); font-size: 11px; }
+.log-table :deep(.el-table__header th) { background: transparent; color: var(--a-mute); font-size: 11px; font-weight: 500; }
+.log-table :deep(.el-table__inner-wrapper::before) { display: none; }
+.log-muted { color: #9ca3af; font-size: 11px; }
 </style>

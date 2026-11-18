@@ -34,7 +34,7 @@ test('设备接入配置可新增网关并测试上报', async ({ page, request 
   await page.getByRole('option').filter({ hasText: 'E2E-TEMP' }).first().click()
   await testDialog.getByPlaceholder('例如 23.6', { exact: true }).fill('23.6')
   await testDialog.getByRole('button', { name: '发送测试' }).click()
-  await expect(page.getByText(/上报成功/)).toBeVisible({ timeout: 10_000 })
+  await expect(testDialog.locator('.test-result')).toContainText('上报成功', { timeout: 10_000 })
 
   const login = await request.post('/api/auth/login', {
     data: { companyCode: data.companyCode, username: 'e2e_superadmin', password: data.password }

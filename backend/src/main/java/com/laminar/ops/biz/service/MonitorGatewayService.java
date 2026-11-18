@@ -99,18 +99,21 @@ public class MonitorGatewayService {
 
     public List<Map<String, Object>> testEquipmentOptions() {
         LoginUser user = requireOperator();
-        String sql = "select equipment_code as `value`, concat(equipment_name, ' · ', equipment_code) as `label` " +
-                "from biz_equipment where status='0' ";
+        String sql = "select e.equipment_code as `value`, concat(e.equipment_name, ' · ', e.equipment_code) as `label` " +
+                "from biz_equipment e where e.status='0' and exists (" +
+                "select 1 from biz_monitor_point p where p.equipment_id=e.equipment_id and p.enabled='1') ";
         if (user.getCompanyId() == null) {
-            return jdbc.queryForList(sql + "order by equipment_name limit 500");
+            return jdbc.queryForList(sql + "order by e.equipment_name limit 500");
         }
-        return jdbc.queryForList(sql + "and company_id=? order by equipment_name limit 500", user.getCompanyId());
+        return jdbc.queryForList(sql + "and e.company_id=? order by e.equipment_name limit 500", user.getCompanyId());
     }
 
     public List<Map<String, Object>> testPointOptions(String equipmentCode) {
         LoginUser user = requireOperator();
-        String sql = "select p.point_code as `value`, concat(p.point_name, ' · ', p.point_code) as `label`, " +
-                "p.unit from biz_monitor_point p join biz_equipment e on e.equipment_id=p.equipment_id " +
+        String sql = "select p.point_code as `value`, concat(p.point_name, ' · ', p.point_code) as `label`, p.unit, " +
+                "p.warn_lower as `warnLower`, p.warn_upper as `warnUpper`, " +
+                "p.alarm_lower as `alarmLower`, p.alarm_upper as `alarmUpper`, " +
+                "p.metric, p.precision from biz_monitor_point p join biz_equipment e on e.equipment_id=p.equipment_id " +
                 "where e.equipment_code=? and p.enabled='1' ";
         if (user.getCompanyId() == null) {
             return jdbc.queryForList(sql + "order by p.point_name", equipmentCode);
@@ -118,15 +121,49 @@ public class MonitorGatewayService {
         return jdbc.queryForList(sql + "and e.company_id=? order by p.point_name", equipmentCode, user.getCompanyId());
     }
 
+    public List<Map<String, Object>> testLogs() {
+        LoginUser user = requireOperator();
+        String sql = "select test_id as `testId`, equipment_code as `equipmentCode`, equipment_name as `equipmentName`, " +
+                "point_code as `pointCode`, point_name as `pointName`, test_value as `value`, unit, " +
+                "result, message, alarm_triggered as `alarmTriggered`, operator, " +
+                "date_format(create_time,'%Y-%m-%d %H:%i:%s') as `createTime` from biz_monitor_test_log ";
+        if (user.getCompanyId() == null) {
+            return jdbc.queryForList(sql + "order by test_id desc limit 10");
+        }
+        return jdbc.queryForList(sql + "where company_id=? order by test_id desc limit 10", user.getCompanyId());
+    }
+
     public Map<String, Object> test(String equipmentCode, String pointCode, double value) {
-        requireOperator();
-        int count = monitorService.report(equipmentCode, pointCode, value);
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("count", count);
-        result.put("equipmentCode", equipmentCode);
-        result.put("pointCode", pointCode);
-        result.put("value", value);
-        return result;
+        LoginUser user = requireOperator();
+        Long companyId = user.getCompanyId();
+        Map<String, Object> point = pointInfo(equipmentCode, pointCode, companyId);
+        String equipmentName = point == null ? "" : str(point.get("equipment_name"));
+        String pointName = point == null ? "" : str(point.get("point_name"));
+        String unit = point == null ? "" : str(point.get("unit"));
+        try {
+            int count = monitorService.report(equipmentCode, pointCode, value);
+            boolean alarm = point != null && activeAlarm(companyId, equipmentCode, pointCode);
+            String threshold = thresholdText(point);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("count", count);
+            result.put("equipmentCode", equipmentCode);
+            result.put("equipmentName", equipmentName);
+            result.put("pointCode", pointCode);
+            result.put("pointName", pointName);
+            result.put("value", value);
+            result.put("unit", unit);
+            result.put("alarmTriggered", alarm);
+            result.put("thresholdText", threshold);
+            result.put("message", alarm ? "上报成功，已触发告警" : "上报成功，当前值未触发告警");
+            insertLog(companyId, equipmentCode, equipmentName, pointCode, pointName, value, unit, "1",
+                    String.valueOf(result.get("message")), alarm ? "1" : "0", user.getUsername());
+            return result;
+        } catch (RuntimeException e) {
+            String message = e.getMessage() == null ? "上报失败" : e.getMessage();
+            insertLog(companyId, equipmentCode, equipmentName, pointCode, pointName, value, unit, "0",
+                    message, "0", user.getUsername());
+            throw e;
+        }
     }
 
     /** 网关上报鉴权：返回 true 时同时刷新 last_seen。 */
@@ -137,6 +174,52 @@ public class MonitorGatewayService {
         if (ids.isEmpty()) return false;
         jdbc.update("update biz_monitor_gateway set last_seen=now() where gateway_id=?", ids.get(0));
         return true;
+    }
+
+    private Map<String, Object> pointInfo(String equipmentCode, String pointCode, Long companyId) {
+        String sql = "select p.point_id, p.point_name, p.point_code, p.unit, p.warn_lower, p.warn_upper, " +
+                "p.alarm_lower, p.alarm_upper, e.equipment_name, e.company_id " +
+                "from biz_monitor_point p join biz_equipment e on e.equipment_id=p.equipment_id " +
+                "where e.equipment_code=? and p.point_code=? ";
+        List<Map<String, Object>> rows = companyId == null
+                ? jdbc.queryForList(sql, equipmentCode, pointCode)
+                : jdbc.queryForList(sql + "and e.company_id=?", equipmentCode, pointCode, companyId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private boolean activeAlarm(Long companyId, String equipmentCode, String pointCode) {
+        String sql = "select count(*) from biz_alarm a join biz_equipment e on e.equipment_id=a.equipment_id " +
+                "join biz_monitor_point p on p.point_id=a.point_id " +
+                "where e.equipment_code=? and p.point_code=? and a.status in ('0','1','2') " +
+                "and a.first_time >= date_sub(now(), interval 30 second) ";
+        Integer count = companyId == null
+                ? jdbc.queryForObject(sql, Integer.class, equipmentCode, pointCode)
+                : jdbc.queryForObject(sql + "and e.company_id=?", Integer.class, equipmentCode, pointCode, companyId);
+        return count != null && count > 0;
+    }
+
+    private String thresholdText(Map<String, Object> point) {
+        if (point == null) return "";
+        String unit = str(point.get("unit"));
+        return "告警范围 " + bound(point.get("alarm_lower"), point.get("alarm_upper"), unit)
+                + "；预警范围 " + bound(point.get("warn_lower"), point.get("warn_upper"), unit);
+    }
+
+    private String bound(Object lower, Object upper, String unit) {
+        if (lower == null && upper == null) return "未配置";
+        if (lower != null && upper != null) return lower + " ~ " + upper + unit;
+        if (lower != null) return "≥ " + lower + unit;
+        return "≤ " + upper + unit;
+    }
+
+    private void insertLog(Long companyId, String equipmentCode, String equipmentName, String pointCode,
+                           String pointName, double value, String unit, String result, String message,
+                           String alarmTriggered, String operator) {
+        jdbc.update("insert into biz_monitor_test_log(company_id,equipment_code,equipment_name,point_code,point_name," +
+                        "test_value,unit,result,message,alarm_triggered,operator,create_time) values(?,?,?,?,?,?,?,?,?,?,?,now())",
+                companyId, equipmentCode, equipmentName, pointCode, pointName, value, unit, result,
+                message != null && message.length() > 500 ? message.substring(0, 500) : message,
+                alarmTriggered, operator);
     }
 
     private void assertOwned(Long gatewayId, Long companyId) {
