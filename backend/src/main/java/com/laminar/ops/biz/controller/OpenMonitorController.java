@@ -1,5 +1,6 @@
 package com.laminar.ops.biz.controller;
 
+import com.laminar.ops.biz.service.MonitorGatewayService;
 import com.laminar.ops.biz.service.MonitorService;
 import com.laminar.ops.common.BizException;
 import com.laminar.ops.common.Result;
@@ -24,6 +25,7 @@ import java.util.Map;
 public class OpenMonitorController {
 
     private final MonitorService monitorService;
+    private final MonitorGatewayService gatewayService;
 
     @Value("${laminar.monitor.token:}")
     private String token;
@@ -71,8 +73,8 @@ public class OpenMonitorController {
     }
 
     private void checkToken(String headerToken) {
-        if (token == null || token.isBlank() || !token.equals(headerToken)) {
-            throw BizException.forbidden("设备接入 Token 无效");
-        }
+        if (gatewayService.authenticate(headerToken)) return;
+        if (token != null && !token.isBlank() && token.equals(headerToken)) return;
+        throw BizException.forbidden("设备接入 Token 无效");
     }
 }

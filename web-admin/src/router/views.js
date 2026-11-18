@@ -9,6 +9,7 @@ export const viewModules = {
   'customer/hospital/index': () => import('../views/customer/hospital/index.vue'),
   'customer/region/index': () => import('../views/customer/region/index.vue'),
   'dashboard/index': () => import('../views/dashboard/index.vue'),
+  'device/access/index': () => import('../views/device/access/index.vue'),
   'device/equipment-center/index': () => import('../views/device/equipment-center/index.vue'),
   'device/equipment/index': () => import('../views/device/equipment/index.vue'),
   'device/monitor-center/index': () => import('../views/device/monitor-center/index.vue'),

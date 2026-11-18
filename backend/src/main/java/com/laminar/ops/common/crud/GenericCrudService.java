@@ -469,6 +469,14 @@ public class GenericCrudService {
     }
 
     public List<Map<String, Object>> options(String key, Map<String, String> params) {
+        if ("gateway".equals(key)) {
+            LoginUser user = AuthContext.require();
+            String sql = "select gateway_id as value, gateway_name as label from biz_monitor_gateway where enabled='1' ";
+            if (user.getCompanyId() == null) {
+                return jdbc.queryForList(sql + "order by gateway_id");
+            }
+            return jdbc.queryForList(sql + "and company_id=? order by gateway_id", user.getCompanyId());
+        }
         ResourceDef def = def(key);
         LoginUser user = AuthContext.require();
         List<Object> args = new ArrayList<>();

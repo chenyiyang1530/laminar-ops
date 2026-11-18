@@ -248,6 +248,8 @@ public final class CrudRegistry {
                 .field(FieldDef.of("departmentName", "department_name", "科室").virtual().form(false).width(120))
                 .field(FieldDef.of("deviceTypeId", "device_type_id", "设备类型").type("select").options("deviceType").query("eq").required().list(false).width(180))
                 .field(FieldDef.of("deviceTypeName", "device_type_name", "设备类型").virtual().form(false).width(150))
+                .field(FieldDef.of("gatewayId", "gateway_id", "接入网关").type("select").options("gateway").list(false).width(160))
+                .field(FieldDef.of("gatewayName", "gateway_name", "接入网关").virtual().form(false).width(150))
                 .field(FieldDef.of("monitorAccess", "monitor_access", "接入状态").virtual().form(false).type("switch").switchText("已接入", "未接入").width(110))
                 .field(FieldDef.of("simulated", "simulated", "模拟采集").type("switch").switchText("开启", "关闭").list(false).width(100))
                 .field(FieldDef.of("equipmentCode", "equipment_code", "设备编号").query("like").width(130))
@@ -264,12 +266,14 @@ public final class CrudRegistry {
                 .field(statusField())
                 .join("h.hospital_name as `hospitalName`, c.campus_name as `campusName`, " +
                                 "t.type_name as `deviceTypeName`, cp.company_name as `companyName`, dept.department_name as `departmentName`, " +
+                                "gw.gateway_name as `gatewayName`, " +
                                 "case when e.monitor_status='0' then '0' else '1' end as `monitorAccess`",
                         "left join biz_hospital h on h.hospital_id = e.hospital_id " +
                                 "left join biz_campus c on c.campus_id = e.campus_id " +
                                 "left join biz_device_type t on t.type_id = e.device_type_id " +
                                 "left join biz_company cp on cp.company_id = e.company_id " +
-                                "left join biz_department dept on dept.department_id = e.department_id"));
+                                "left join biz_department dept on dept.department_id = e.department_id " +
+                                "left join biz_monitor_gateway gw on gw.gateway_id = e.gateway_id"));
 
         register(ResourceDef.of("monitorPoint", "biz_monitor_point", "point_id", "监测点位", "device:point", "point_name")
                 .noHospitalScope()
