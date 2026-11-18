@@ -22,10 +22,9 @@
         </ul>
       </div>
       <div class="brand-stats">
-        <div><b>3</b><span>合作医院</span></div>
-        <div><b>8</b><span>科室</span></div>
-        <div><b>45</b><span>监测点位</span></div>
-        <div><b>24h</b><span>在线守护</span></div>
+        <div><b>多院区</b><span>统一接入</span></div>
+        <div><b>全链路</b><span>闭环运维</span></div>
+        <div><b>7×24</b><span>在线守护</span></div>
       </div>
     </div>
 
@@ -201,9 +200,9 @@ async function submit() {
 .brand-body ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
 .brand-body li { display: flex; align-items: center; gap: 10px; color: #cfdae6; font-size: 13px; }
 .brand-body li .el-icon { color: #5eead4; font-size: 18px; }
-.brand-stats { display: flex; gap: 46px; position: relative; z-index: 1; }
+.brand-stats { display: flex; gap: 32px; position: relative; z-index: 1; }
 .brand-stats div { display: flex; flex-direction: column; }
-.brand-stats b { font-size: 26px; color: #5eead4; }
+.brand-stats b { font-size: 17px; color: #5eead4; font-weight: 600; letter-spacing: -.01em; }
 .brand-stats span { font-size: 12px; color: #8298b0; margin-top: 2px; }
 
 .form-panel { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; }

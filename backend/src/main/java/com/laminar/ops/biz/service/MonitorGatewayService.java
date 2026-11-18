@@ -3,6 +3,7 @@ package com.laminar.ops.biz.service;
 import com.laminar.ops.common.BizException;
 import com.laminar.ops.security.AuthContext;
 import com.laminar.ops.security.LoginUser;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ public class MonitorGatewayService {
     private static final SecureRandom RANDOM = new SecureRandom();
     private final JdbcTemplate jdbc;
     private final MonitorService monitorService;
+    private final ObjectMapper objectMapper;
 
     public List<Map<String, Object>> list() {
         LoginUser user = requireOperator();
@@ -109,6 +111,92 @@ public class MonitorGatewayService {
         assertOwned(gatewayId, requireOperator().getCompanyId());
         jdbc.update("update biz_equipment set gateway_id=null where gateway_id=?", gatewayId);
         jdbc.update("delete from biz_monitor_gateway where gateway_id=?", gatewayId);
+    }
+
+    public List<Map<String, Object>> qualityLogs() {
+        LoginUser user = requireOperator();
+        String sql = "select quality_id as `qualityId`, equipment_code as `equipmentCode`, equipment_name as `equipmentName`, " +
+                "point_code as `pointCode`, point_name as `pointName`, metric, value, previous_value as `previousValue`, " +
+                "quality_type as `qualityType`, message, date_format(create_time,'%Y-%m-%d %H:%i:%s') as `createTime` " +
+                "from biz_monitor_quality_log ";
+        if (user.getCompanyId() == null) {
+            return jdbc.queryForList(sql + "order by quality_id desc limit 20");
+        }
+        return jdbc.queryForList(sql + "where company_id=? order by quality_id desc limit 20", user.getCompanyId());
+    }
+
+    public List<Map<String, Object>> modbusTemplates() {
+        LoginUser user = requireOperator();
+        String sql = "select t.template_id as `templateId`, t.template_code as `templateCode`, t.template_name as `templateName`, " +
+                "t.gateway_id as `gatewayId`, g.gateway_name as `gatewayName`, t.config_json as `configJson`, " +
+                "t.enabled, t.remark, date_format(t.update_time,'%Y-%m-%d %H:%i') as `updateTime` " +
+                "from biz_modbus_template t left join biz_monitor_gateway g on g.gateway_id=t.gateway_id where 1=1 ";
+        if (user.getCompanyId() == null) {
+            return jdbc.queryForList(sql + "order by t.template_id desc");
+        }
+        return jdbc.queryForList(sql + "and t.company_id=? order by t.template_id desc", user.getCompanyId());
+    }
+
+    public Map<String, Object> saveModbusTemplate(Map<String, Object> body) {
+        LoginUser user = requireOperator();
+        Long companyId = user.getCompanyId();
+        Long templateId = longOf(body.get("templateId"));
+        String code = str(body.get("templateCode")).trim().toUpperCase();
+        String name = str(body.get("templateName")).trim();
+        String config = str(body.get("configJson")).trim();
+        Long gatewayId = longOf(body.get("gatewayId"));
+        if (code.isBlank() || name.isBlank()) throw BizException.badRequest("请填写模板编码和名称");
+        if (config.isBlank()) throw BizException.badRequest("请填写寄存器映射 JSON");
+        try {
+            objectMapper.readTree(config);
+        } catch (Exception e) {
+            throw BizException.badRequest("寄存器映射不是合法 JSON");
+        }
+        if (gatewayId != null) assertOwned(gatewayId, companyId);
+        Integer duplicate = jdbc.queryForObject(
+                "select count(*) from biz_modbus_template where template_code=? and template_id<>?",
+                Integer.class, code, templateId == null ? -1L : templateId);
+        if (duplicate != null && duplicate > 0) throw BizException.badRequest("模板编码已存在");
+        if (templateId == null) {
+            jdbc.update("insert into biz_modbus_template(company_id,gateway_id,template_code,template_name,config_json,enabled,remark,create_time) " +
+                            "values(?,?,?,?,?,'1',?,now())",
+                    companyId, gatewayId, code, name, config, str(body.get("remark")));
+            templateId = jdbc.queryForObject("select last_insert_id()", Long.class);
+        } else {
+            Map<String, Object> old = jdbc.queryForMap("select company_id from biz_modbus_template where template_id=?", templateId);
+            if (companyId != null && (old.get("company_id") == null
+                    || !companyId.equals(((Number) old.get("company_id")).longValue()))) {
+                throw BizException.forbidden("无权操作其他公司模板");
+            }
+            jdbc.update("update biz_modbus_template set gateway_id=?,template_code=?,template_name=?,config_json=?,remark=?,update_time=now() where template_id=?",
+                    gatewayId, code, name, config, str(body.get("remark")), templateId);
+        }
+        return Map.of("templateId", templateId);
+    }
+
+    public void deleteModbusTemplate(Long templateId) {
+        LoginUser user = requireOperator();
+        Map<String, Object> row = jdbc.queryForMap("select company_id from biz_modbus_template where template_id=?", templateId);
+        if (user.getCompanyId() != null && (row.get("company_id") == null
+                || !user.getCompanyId().equals(((Number) row.get("company_id")).longValue()))) {
+            throw BizException.forbidden("无权操作其他公司模板");
+        }
+        jdbc.update("delete from biz_modbus_template where template_id=?", templateId);
+    }
+
+    public List<Map<String, Object>> templatesForToken(String token) {
+        List<Map<String, Object>> gateways = jdbc.queryForList(
+                "select gateway_id, company_id from biz_monitor_gateway where token=? and enabled='1'", token);
+        if (gateways.isEmpty()) return List.of();
+        Long gatewayId = ((Number) gateways.get(0).get("gateway_id")).longValue();
+        Long companyId = gateways.get(0).get("company_id") == null ? null : ((Number) gateways.get(0).get("company_id")).longValue();
+        String sql = "select template_code as `templateCode`, template_name as `templateName`, config_json as `configJson`, " +
+                "date_format(update_time,'%Y-%m-%d %H:%i:%s') as `updateTime` from biz_modbus_template " +
+                "where enabled='1' and (gateway_id=? or gateway_id is null) ";
+        if (companyId == null) {
+            return jdbc.queryForList(sql + "and company_id is null order by template_id", gatewayId);
+        }
+        return jdbc.queryForList(sql + "and company_id=? order by template_id", gatewayId, companyId);
     }
 
     public List<Map<String, Object>> testEquipmentOptions() {

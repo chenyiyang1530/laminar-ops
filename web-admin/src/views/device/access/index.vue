@@ -7,6 +7,7 @@
       </div>
       <div class="head-actions">
         <el-button @click="openTest">测试上报</el-button>
+        <el-button v-if="canEdit" @click="openTemplate">新增模板</el-button>
         <el-button v-if="canEdit" type="primary" @click="openAdd">新增网关</el-button>
       </div>
     </div>
@@ -20,6 +21,7 @@
       <div class="endpoint-meta">
         <span>批量：<code>/api/open/monitor/report/batch</code></span>
         <span>Header：<code>X-Monitor-Token</code></span>
+        <span>MQTT：{{ accessInfo.mqttEnabled ? `已启用 · ${accessInfo.mqttTopic}` : '未启用' }}</span>
       </div>
     </div>
 
@@ -101,6 +103,56 @@
       <div v-if="!testLogs.length" class="empty">暂无测试记录</div>
     </div>
 
+    <div class="modbus-section">
+      <div class="log-head">
+        <div>
+          <h3>Modbus 寄存器模板</h3>
+          <p>网关可读取模板，统一寄存器地址、数据类型和缩放系数</p>
+        </div>
+        <el-button v-if="canEdit" size="small" @click="openTemplate">新增模板</el-button>
+      </div>
+      <el-table :data="templates" size="small">
+        <el-table-column prop="templateCode" label="模板编码" width="150" />
+        <el-table-column prop="templateName" label="模板名称" min-width="160" />
+        <el-table-column prop="gatewayName" label="绑定网关" width="140">
+          <template #default="{ row }">{{ row.gatewayName || '通用' }}</template>
+        </el-table-column>
+        <el-table-column prop="updateTime" label="更新时间" width="160" />
+        <el-table-column label="操作" width="130">
+          <template #default="{ row }">
+            <el-button link type="primary" v-if="canEdit" @click="editTemplate(row)">编辑</el-button>
+            <el-button link type="danger" v-if="canEdit" @click="removeTemplate(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-if="!templates.length" class="empty">暂无 Modbus 模板</div>
+    </div>
+
+    <div class="modbus-section">
+      <div class="log-head">
+        <div>
+          <h3>数据质量</h3>
+          <p>最近 20 条越界、跳变和设备超时记录</p>
+        </div>
+      </div>
+      <el-table :data="qualityLogs" size="small">
+        <el-table-column prop="createTime" label="时间" width="160" />
+        <el-table-column prop="equipmentName" label="设备" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="pointName" label="点位" min-width="130" show-overflow-tooltip />
+        <el-table-column label="类型" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.qualityType === 'TIMEOUT' ? 'warning' : 'danger'" effect="plain">
+              {{ row.qualityType === 'RANGE' ? '越界' : row.qualityType === 'JUMP' ? '跳变' : '超时' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="value" label="当前值" width="90" />
+        <el-table-column prop="previousValue" label="上次值" width="90" />
+        <el-table-column prop="message" label="说明" min-width="240" show-overflow-tooltip />
+      </el-table>
+      <div v-if="!qualityLogs.length" class="empty">暂无数据质量异常</div>
+    </div>
+
     <el-dialog v-model="dialog" :title="form.gatewayId ? '编辑网关' : '新增网关'" width="560px">
       <el-form :model="form" label-width="92px">
         <el-form-item label="网关编码" required><el-input v-model="form.gatewayCode" placeholder="例如 GW-AHU-01" /></el-form-item>
@@ -129,6 +181,26 @@
       <el-alert title="Token 只在这里展示，请复制到现场网关配置中；不要写入公开文档。" type="warning" :closable="false" show-icon />
       <div class="token-box">{{ issuedToken }}</div>
       <template #footer><el-button type="primary" @click="copy(issuedToken)">复制 Token</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="templateDialog" :title="templateForm.templateId ? '编辑 Modbus 模板' : '新增 Modbus 模板'" width="640px">
+      <el-form :model="templateForm" label-width="92px">
+        <el-form-item label="模板编码" required><el-input v-model="templateForm.templateCode" placeholder="例如 MODBUS-AHU-01" /></el-form-item>
+        <el-form-item label="模板名称" required><el-input v-model="templateForm.templateName" placeholder="例如 AHU 标准寄存器" /></el-form-item>
+        <el-form-item label="绑定网关">
+          <el-select v-model="templateForm.gatewayId" clearable placeholder="通用模板（所有网关可用）" style="width: 100%">
+            <el-option v-for="g in gateways" :key="g.gatewayId" :label="g.gatewayName" :value="g.gatewayId" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="寄存器映射" required>
+          <el-input v-model="templateForm.configJson" type="textarea" :rows="12" placeholder='[{"pointCode":"TEMP","name":"送风温度","function":"holding","address":0,"dataType":"int16","scale":0.1,"unit":"℃"}]' />
+        </el-form-item>
+        <el-form-item label="备注"><el-input v-model="templateForm.remark" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="templateDialog = false">取消</el-button>
+        <el-button type="primary" :loading="templateSaving" @click="saveTemplate">保存</el-button>
+      </template>
     </el-dialog>
 
     <el-dialog v-model="tokenLogVisible" :title="`Token 审计 · ${tokenLogTitle}`" width="600px">
@@ -200,6 +272,7 @@ const store = useUserStore()
 const canEdit = store.hasPerm('device:equipment:edit')
 const loading = ref(false)
 const gateways = ref([])
+const accessInfo = ref({})
 const dialog = ref(false)
 const saving = ref(false)
 const form = reactive({})
@@ -218,6 +291,15 @@ const previewTimer = ref(null)
 const tokenLogVisible = ref(false)
 const tokenLogTitle = ref('')
 const tokenLogs = ref([])
+const templates = ref([])
+const qualityLogs = ref([])
+const templateDialog = ref(false)
+const templateSaving = ref(false)
+const templateForm = reactive({})
+const defaultTemplate = `[
+  {"pointCode":"TEMP","name":"送风温度","function":"holding","address":0,"dataType":"int16","scale":0.1,"unit":"℃"},
+  {"pointCode":"HUM","name":"回风湿度","function":"holding","address":1,"dataType":"int16","scale":0.1,"unit":"%RH"}
+]`
 const testForm = reactive({ equipmentCode: '', pointCode: '', value: '' })
 const selectedPoint = computed(() => pointOptions.value.find((p) => p.value === testForm.pointCode) || null)
 const preview = computed(() => {
@@ -240,6 +322,11 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadAccessInfo() {
+  const res = await request.get('/monitor/access/info')
+  accessInfo.value = res.data || {}
 }
 
 function openAdd() {
@@ -293,6 +380,51 @@ async function openTokenLogs(row) {
   tokenLogs.value = res.data || []
 }
 
+function openTemplate() {
+  Object.keys(templateForm).forEach((k) => delete templateForm[k])
+  Object.assign(templateForm, { configJson: defaultTemplate })
+  templateDialog.value = true
+}
+
+function editTemplate(row) {
+  Object.keys(templateForm).forEach((k) => delete templateForm[k])
+  Object.assign(templateForm, { ...row, configJson: row.configJson })
+  templateDialog.value = true
+}
+
+async function saveTemplate() {
+  if (!templateForm.templateCode || !templateForm.templateName || !templateForm.configJson) {
+    ElMessage.warning('请填写模板编码、名称和寄存器映射')
+    return
+  }
+  templateSaving.value = true
+  try {
+    await request.post('/monitor/access/modbus-templates', templateForm)
+    templateDialog.value = false
+    ElMessage.success('模板已保存')
+    await loadTemplates()
+  } finally {
+    templateSaving.value = false
+  }
+}
+
+async function removeTemplate(row) {
+  await ElMessageBox.confirm(`确认删除模板「${row.templateName}」？`, '提示', { type: 'warning' })
+  await request.delete(`/monitor/access/modbus-templates/${row.templateId}`)
+  ElMessage.success('已删除')
+  await loadTemplates()
+}
+
+async function loadTemplates() {
+  const res = await request.get('/monitor/access/modbus-templates')
+  templates.value = res.data || []
+}
+
+async function loadQualityLogs() {
+  const res = await request.get('/monitor/access/quality-logs')
+  qualityLogs.value = res.data || []
+}
+
 async function remove(row) {
   await ElMessageBox.confirm(`确认删除网关「${row.gatewayName}」？设备会解除绑定。`, '提示', { type: 'warning' })
   await request.delete(`/monitor/access/gateways/${row.gatewayId}`)
@@ -312,6 +444,7 @@ async function runTest() {
     const d = res.data
     testResult.value = `${d.message}（写入 ${d.count} 个点位，当前值 ${d.value}${d.unit || ''}）`
     await loadTestLogs()
+    await loadQualityLogs()
   } catch (e) {
     testResult.value = e?.response?.data?.msg || e?.message || '上报失败，请检查设备、点位和模拟开关'
   } finally {
@@ -402,8 +535,11 @@ function boundText(lower, upper, unit = '') {
 
 onMounted(() => {
   load()
+  loadAccessInfo()
   loadEquipmentOptions()
   loadTestLogs()
+  loadTemplates()
+  loadQualityLogs()
 })
 </script>
 
@@ -439,6 +575,7 @@ onMounted(() => {
 .rule-label { font-weight: 600; margin-right: 8px; }
 .rule-name { margin-left: 8px; color: #9ca3af; }
 .test-log-section { margin-top: 18px; border: 1px solid var(--a-line); border-radius: 12px; background: #fff; padding: 16px 18px; }
+.modbus-section { margin-top: 18px; border: 1px solid var(--a-line); border-radius: 12px; background: #fff; padding: 16px 18px; }
 .log-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .log-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
 .log-head p { margin: 4px 0 10px; color: var(--a-mute); font-size: 11px; }

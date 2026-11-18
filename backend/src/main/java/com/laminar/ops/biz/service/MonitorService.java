@@ -116,6 +116,10 @@ public class MonitorService {
                 Long equipmentId = ((Number) eq.get("equipment_id")).longValue();
                 if (!handled.add(equipmentId)) continue;
                 jdbc.update("update biz_equipment set monitor_status='0' where equipment_id=?", equipmentId);
+                jdbc.update("insert into biz_monitor_quality_log(company_id,equipment_code,equipment_name,metric,quality_type,message,create_time) " +
+                                "values(?,?,?,'heartbeat','TIMEOUT',?,now())",
+                        eq.get("company_id"), eq.get("equipment_code"), eq.get("equipment_name"),
+                        "设备超过 " + seconds + " 秒未上报心跳");
                 alarmService.raiseOffline(eq, seconds);
                 count++;
             }
@@ -279,16 +283,16 @@ public class MonitorService {
 
     public int report(String equipmentCode, String pointCode, double value, LocalDateTime collectedAt) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "select p.point_id, p.equipment_id, p.point_name, p.metric, p.unit, p.precision, " +
+                "select p.point_id, p.equipment_id, p.point_name, p.point_code, p.metric, p.unit, p.precision, " +
                         "p.warn_lower, p.warn_upper, p.alarm_lower, p.alarm_upper, " +
-                        "e.equipment_name, e.hospital_id, e.campus_id, e.department_id, e.device_type_id, e.company_id " +
+                        "e.equipment_code, e.equipment_name, e.hospital_id, e.campus_id, e.department_id, e.device_type_id, e.company_id " +
                         "from biz_monitor_point p join biz_equipment e on e.equipment_id = p.equipment_id " +
                         "where e.equipment_code = ? and p.point_code = ?", equipmentCode, pointCode);
         if (rows.isEmpty()) {
             throw BizException.badRequest("设备或点位不存在：" + equipmentCode + "/" + pointCode);
         }
         Map<String, Object> p = rows.get(0);
-        qualityCheck(str(p.get("metric")), value);
+        qualityCheck(p, value);
         Long equipmentId = ((Number) p.get("equipment_id")).longValue();
         Long pointId = ((Number) p.get("point_id")).longValue();
         LocalDateTime now = LocalDateTime.now();
@@ -487,8 +491,9 @@ public class MonitorService {
         };
     }
 
-    /** 基础数据质量：拒绝明显不可能的量测值，避免污染曲线和告警。 */
-    private void qualityCheck(String metric, double value) {
+    /** 基础数据质量：越界和异常跳变拒绝写入，并留下质量记录。 */
+    private void qualityCheck(Map<String, Object> p, double value) {
+        String metric = str(p.get("metric"));
         double min = -Double.MAX_VALUE;
         double max = Double.MAX_VALUE;
         switch (metric) {
@@ -499,11 +504,46 @@ public class MonitorService {
             case "particle" -> { min = 0; max = 10000000; }
             case "oxygen_pressure" -> { min = 0; max = 100; }
             case "vacuum" -> { min = -100; max = 0; }
-            default -> { return; }
+            default -> { }
         }
         if (value < min || value > max) {
-            throw BizException.badRequest("数据越界，已过滤：" + metric + "=" + value + "，允许范围 " + min + "~" + max);
+            String message = "数据越界，已过滤：" + metric + "=" + value + "，允许范围 " + min + "~" + max;
+            qualityLog(p, value, null, "RANGE", message);
+            throw BizException.badRequest(message);
         }
+        Long pointId = ((Number) p.get("point_id")).longValue();
+        List<Double> previousRows = jdbc.queryForList(
+                "select value from biz_monitor_data where point_id=? order by collect_time desc limit 1",
+                Double.class, pointId);
+        Double previous = previousRows.isEmpty() ? null : previousRows.get(0);
+        double maxJump = maxJump(metric);
+        if (previous != null && maxJump > 0 && Math.abs(value - previous) > maxJump) {
+            String message = "数据跳变，已过滤：" + metric + " 从 " + previous + " 变为 " + value
+                    + "，允许单次变化 " + maxJump;
+            qualityLog(p, value, previous, "JUMP", message);
+            throw BizException.badRequest(message);
+        }
+    }
+
+    private double maxJump(String metric) {
+        return switch (metric) {
+            case "temperature" -> 20;
+            case "humidity" -> 50;
+            case "pressure" -> 10000;
+            case "wind_speed" -> 20;
+            case "particle" -> 5000000;
+            case "oxygen_pressure" -> 20;
+            case "vacuum" -> 50;
+            default -> 0;
+        };
+    }
+
+    private void qualityLog(Map<String, Object> p, Double value, Double previous, String type, String message) {
+        jdbc.update("insert into biz_monitor_quality_log(company_id,equipment_code,equipment_name,point_code,point_name," +
+                        "metric,value,previous_value,quality_type,message,create_time) values(?,?,?,?,?,?,?,?,?,?,now())",
+                p.get("company_id"), p.get("equipment_code"), p.get("equipment_name"), p.get("point_code"),
+                p.get("point_name"), p.get("metric"), value, previous, type,
+                message != null && message.length() > 500 ? message.substring(0, 500) : message);
     }
 
     private String trim(Double v) {

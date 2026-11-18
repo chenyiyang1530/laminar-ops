@@ -88,6 +88,15 @@ laminar:
     slow-sql-enabled: true
     slow-sql-threshold-ms: 1000
     token: ${MONITOR_TOKEN:}
+    test-log-retain-days: ${MONITOR_TEST_LOG_RETAIN_DAYS:90}
+    mqtt:
+      enabled: ${MQTT_ENABLED:false}
+      broker: ${MQTT_BROKER:tcp://127.0.0.1:1883}
+      client-id: ${MQTT_CLIENT_ID:}
+      topic: ${MQTT_TOPIC:laminar/monitor/up}
+      username: ${MQTT_USERNAME:}
+      password: ${MQTT_PASSWORD:}
+      qos: ${MQTT_QOS:1}
   app:
     version: 1.6.0
   backup:

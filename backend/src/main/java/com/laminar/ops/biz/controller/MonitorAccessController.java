@@ -4,6 +4,7 @@ import com.laminar.ops.biz.service.MonitorGatewayService;
 import com.laminar.ops.common.Result;
 import com.laminar.ops.security.Perm;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,6 +25,13 @@ import java.util.Map;
 public class MonitorAccessController {
 
     private final MonitorGatewayService gatewayService;
+
+    @Value("${laminar.monitor.mqtt.enabled:false}")
+    private boolean mqttEnabled;
+    @Value("${laminar.monitor.mqtt.broker:tcp://127.0.0.1:1883}")
+    private String mqttBroker;
+    @Value("${laminar.monitor.mqtt.topic:laminar/monitor/up}")
+    private String mqttTopic;
 
     @GetMapping("/gateways")
     @Perm("device:equipment:list")
@@ -60,6 +68,31 @@ public class MonitorAccessController {
     @Perm("device:equipment:list")
     public Result<List<Map<String, Object>>> tokenLogs(@PathVariable Long id) {
         return Result.ok(gatewayService.tokenLogs(id));
+    }
+
+    @GetMapping("/modbus-templates")
+    @Perm("device:equipment:list")
+    public Result<List<Map<String, Object>>> modbusTemplates() {
+        return Result.ok(gatewayService.modbusTemplates());
+    }
+
+    @GetMapping("/quality-logs")
+    @Perm("device:equipment:list")
+    public Result<List<Map<String, Object>>> qualityLogs() {
+        return Result.ok(gatewayService.qualityLogs());
+    }
+
+    @PostMapping("/modbus-templates")
+    @Perm("device:equipment:edit")
+    public Result<Map<String, Object>> saveModbusTemplate(@RequestBody Map<String, Object> body) {
+        return Result.ok(gatewayService.saveModbusTemplate(body));
+    }
+
+    @DeleteMapping("/modbus-templates/{id}")
+    @Perm("device:equipment:edit")
+    public Result<Void> deleteModbusTemplate(@PathVariable Long id) {
+        gatewayService.deleteModbusTemplate(id);
+        return Result.ok();
     }
 
     @DeleteMapping("/gateways/{id}")
@@ -130,6 +163,9 @@ public class MonitorAccessController {
         result.put("batchUrl", "/api/open/monitor/report/batch");
         result.put("tokenHeader", "X-Monitor-Token");
         result.put("maxBatch", 500);
+        result.put("mqttEnabled", mqttEnabled);
+        result.put("mqttBroker", mqttBroker);
+        result.put("mqttTopic", mqttTopic);
         return Result.ok(result);
     }
 }

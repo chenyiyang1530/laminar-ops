@@ -7,6 +7,7 @@ import com.laminar.ops.common.Result;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -95,6 +96,14 @@ public class OpenMonitorController {
         result.put("failed", points.size() - success);
         result.put("items", details);
         return Result.ok(result);
+    }
+
+    @GetMapping("/modbus-templates")
+    public Result<List<Map<String, Object>>> modbusTemplates(
+            @RequestHeader(value = "X-Monitor-Token", required = false) String headerToken,
+            HttpServletRequest request) {
+        checkToken(headerToken, request);
+        return Result.ok(gatewayService.templatesForToken(headerToken));
     }
 
     private LocalDateTime timestamp(Object value) {
