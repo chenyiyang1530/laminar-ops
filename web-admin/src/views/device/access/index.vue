@@ -6,7 +6,7 @@
         <p>管理现场网关、Token 与上报通道。设备与点位请在“设备台账”“监测点位”中维护。</p>
       </div>
       <div class="head-actions">
-        <el-button @click="testVisible = true">测试上报</el-button>
+        <el-button @click="openTest">测试上报</el-button>
         <el-button v-if="canEdit" type="primary" @click="openAdd">新增网关</el-button>
       </div>
     </div>
@@ -85,10 +85,19 @@
 
     <el-dialog v-model="testVisible" title="测试上报" width="560px">
       <el-form :model="testForm" label-width="92px">
-        <el-form-item label="设备编码"><el-input v-model="testForm.equipmentCode" placeholder="例如 AHU-04" /></el-form-item>
-        <el-form-item label="点位编码"><el-input v-model="testForm.pointCode" placeholder="例如 AHU-04-TEMP" /></el-form-item>
+        <el-form-item label="设备">
+          <el-select v-model="testForm.equipmentCode" filterable placeholder="选择设备" style="width: 100%" @change="loadTestPoints">
+            <el-option v-for="item in equipmentOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="监测点位">
+          <el-select v-model="testForm.pointCode" filterable :disabled="!testForm.equipmentCode" placeholder="选择监测点位" style="width: 100%">
+            <el-option v-for="item in pointOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="测试值"><el-input v-model="testForm.value" placeholder="例如 23.6" /></el-form-item>
       </el-form>
+      <div v-if="!equipmentOptions.length && testVisible" class="empty">当前没有可测试的设备，请先在设备台账维护设备。</div>
       <div v-if="testResult" class="test-result">
         {{ testResult }}
       </div>
@@ -118,6 +127,8 @@ const issuedToken = ref('')
 const testVisible = ref(false)
 const testing = ref(false)
 const testResult = ref('')
+const equipmentOptions = ref([])
+const pointOptions = ref([])
 const testForm = reactive({ equipmentCode: '', pointCode: '', value: '' })
 
 async function load() {
@@ -182,7 +193,7 @@ async function remove(row) {
 
 async function runTest() {
   if (!testForm.equipmentCode || !testForm.pointCode || !testForm.value) {
-    ElMessage.warning('请填写设备编码、点位编码和测试值')
+    ElMessage.warning('请选择设备、监测点位并填写测试值')
     return
   }
   testing.value = true
@@ -191,10 +202,29 @@ async function runTest() {
     const res = await request.post('/monitor/access/test', testForm)
     testResult.value = `上报成功：写入 ${res.data.count} 个点位，当前值 ${res.data.value}`
   } catch (e) {
-    testResult.value = '上报失败，请检查设备编码、点位编码和模拟开关'
+    testResult.value = '上报失败，请检查设备、点位和模拟开关'
   } finally {
     testing.value = false
   }
+}
+
+async function openTest() {
+  testVisible.value = true
+  testResult.value = ''
+  testForm.equipmentCode = ''
+  testForm.pointCode = ''
+  testForm.value = ''
+  pointOptions.value = []
+  const res = await request.get('/monitor/access/test/equipment')
+  equipmentOptions.value = res.data || []
+}
+
+async function loadTestPoints() {
+  testForm.pointCode = ''
+  pointOptions.value = []
+  if (!testForm.equipmentCode) return
+  const res = await request.get('/monitor/access/test/points', { params: { equipmentCode: testForm.equipmentCode } })
+  pointOptions.value = res.data || []
 }
 
 async function copy(value) {

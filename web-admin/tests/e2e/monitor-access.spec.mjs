@@ -28,8 +28,10 @@ test('设备接入配置可新增网关并测试上报', async ({ page, request 
 
   await page.getByRole('button', { name: '测试上报' }).click()
   const testDialog = page.getByRole('dialog').filter({ hasText: '测试上报' })
-  await testDialog.getByPlaceholder('例如 AHU-04', { exact: true }).fill('AHU-04')
-  await testDialog.getByPlaceholder('例如 AHU-04-TEMP', { exact: true }).fill('AHU-04-TEMP')
+  await testDialog.locator('.el-select').nth(0).click()
+  await page.getByRole('option').filter({ hasText: 'E2E-AHU' }).first().click()
+  await testDialog.locator('.el-select').nth(1).click()
+  await page.getByRole('option').filter({ hasText: 'E2E-TEMP' }).first().click()
   await testDialog.getByPlaceholder('例如 23.6', { exact: true }).fill('23.6')
   await testDialog.getByRole('button', { name: '发送测试' }).click()
   await expect(page.getByText(/上报成功/)).toBeVisible({ timeout: 10_000 })

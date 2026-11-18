@@ -97,6 +97,27 @@ public class MonitorGatewayService {
         jdbc.update("delete from biz_monitor_gateway where gateway_id=?", gatewayId);
     }
 
+    public List<Map<String, Object>> testEquipmentOptions() {
+        LoginUser user = requireOperator();
+        String sql = "select equipment_code as `value`, concat(equipment_name, ' · ', equipment_code) as `label` " +
+                "from biz_equipment where status='0' ";
+        if (user.getCompanyId() == null) {
+            return jdbc.queryForList(sql + "order by equipment_name limit 500");
+        }
+        return jdbc.queryForList(sql + "and company_id=? order by equipment_name limit 500", user.getCompanyId());
+    }
+
+    public List<Map<String, Object>> testPointOptions(String equipmentCode) {
+        LoginUser user = requireOperator();
+        String sql = "select p.point_code as `value`, concat(p.point_name, ' · ', p.point_code) as `label`, " +
+                "p.unit from biz_monitor_point p join biz_equipment e on e.equipment_id=p.equipment_id " +
+                "where e.equipment_code=? and p.enabled='1' ";
+        if (user.getCompanyId() == null) {
+            return jdbc.queryForList(sql + "order by p.point_name", equipmentCode);
+        }
+        return jdbc.queryForList(sql + "and e.company_id=? order by p.point_name", equipmentCode, user.getCompanyId());
+    }
+
     public Map<String, Object> test(String equipmentCode, String pointCode, double value) {
         requireOperator();
         int count = monitorService.report(equipmentCode, pointCode, value);

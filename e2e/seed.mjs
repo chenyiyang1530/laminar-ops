@@ -70,6 +70,8 @@ SET @device_type_id=LAST_INSERT_ID();
 INSERT INTO biz_equipment(company_id,equipment_code,equipment_name,hospital_id,device_type_id,status,create_time)
 VALUES(@company_id,'E2E-AHU','E2E测试机组',@hospital_id,@device_type_id,'0',NOW());
 SET @equipment_id=LAST_INSERT_ID();
+INSERT INTO biz_monitor_point(company_id,equipment_id,point_code,point_name,metric,unit,warn_lower,warn_upper,alarm_lower,alarm_upper,collect_interval,enabled,create_time)
+VALUES(@company_id,@equipment_id,'E2E-TEMP','E2E送风温度','temperature','℃',18,26,15,30,30,'1',NOW());
 
 INSERT INTO sys_user(username,password,nick_name,user_type,company_id,status,must_change_pwd,create_time)
 VALUES('e2e_company','${hash}','E2E公司管理员','1',@company_id,'0',0,NOW());
