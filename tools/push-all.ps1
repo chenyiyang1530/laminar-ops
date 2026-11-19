@@ -39,9 +39,11 @@ function Push-WithToken($remote, $username, $token) {
     return ($LASTEXITCODE -eq 0)
 }
 
-function Remote-Head($remote) {
+function Remote-Head($remote, $username, $token) {
+    if (!$token) { return 'missing' }
     try {
-        $line = (git -c http.sslBackend=schannel ls-remote $remote refs/heads/main 2>$null)
+        $basic = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${username}:${token}"))
+        $line = (git -c http.sslBackend=schannel -c "http.extraHeader=Authorization: Basic $basic" ls-remote $remote refs/heads/main 2>$null)
         if (!$line) { return 'missing' }
         return $line.Split("`t")[0]
     } catch {
@@ -81,8 +83,8 @@ if ($wantedGitee) {
 }
 
 $local = (git rev-parse HEAD).Trim()
-$originHead = Remote-Head 'origin'
-$giteeHead = Remote-Head 'gitee'
+$originHead = Remote-Head 'origin' 'x-access-token' $githubToken
+$giteeHead = Remote-Head 'gitee' $giteeUser $giteeToken
 $status = if ($failed.Count) { 'partial' } else { 'success' }
 $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
 $logLine = "[$stamp] status=$status remote=$Remote local=$local github=$originHead gitee=$giteeHead pushed=$($pushed -join ',') failed=$($failed -join ',')"
