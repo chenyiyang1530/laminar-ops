@@ -207,6 +207,18 @@
         <el-form-item v-if="finishForm.partsReplaced" label="备件明细">
           <el-input v-model="finishForm.partsUsed" placeholder="备件名称、规格、数量" />
         </el-form-item>
+        <el-form-item v-if="finishForm.partsReplaced" label="使用备件">
+          <div style="width: 100%">
+            <div v-for="(p, i) in finishForm.parts" :key="i" style="display: flex; gap: 8px; margin-bottom: 8px">
+              <el-select v-model="p.partId" filterable placeholder="选择备件" style="flex: 1">
+                <el-option v-for="it in partOptions" :key="it.value" :label="it.label" :value="it.value" />
+              </el-select>
+              <el-input-number v-model="p.quantity" :min="1" style="width: 110px" />
+              <el-button link type="danger" @click="finishForm.parts.splice(i, 1)">删除</el-button>
+            </div>
+            <el-button size="small" @click="finishForm.parts.push({ partId: undefined, quantity: 1 })">+ 添加实际使用备件</el-button>
+          </div>
+        </el-form-item>
         <el-form-item label="时间指标">
           <span class="finish-arrive">响应时间：告警 → 到场；停机/维修时间：到场 → 完工，提交后自动计算</span>
         </el-form-item>
@@ -367,8 +379,10 @@ const finishForm = reactive({
   solution: '',
   partsReplaced: false,
   partsUsed: '',
+  parts: [],
   imageUrl: ''
 })
+const partOptions = ref([])
 const acceptDialog = ref(false)
 const acceptDetail = ref(null)
 const acceptLoading = ref(false)
@@ -531,6 +545,7 @@ function openFinish(row) {
     solution: '',
     partsReplaced: false,
     partsUsed: '',
+    parts: [],
     imageUrl: ''
   })
   finishDialog.value = true
@@ -540,7 +555,10 @@ async function submitFinish() {
   if (!finishForm.solution.trim()) { ElMessage.warning('请填写处理措施'); return }
   if (!finishForm.report.trim()) { ElMessage.warning('请填写维修报告'); return }
   if (finishForm.partsReplaced && !finishForm.partsUsed.trim()) { ElMessage.warning('请填写备件明细'); return }
-  await request.post(`/workorder/${current.value.workorderId}/finish`, finishForm)
+  await request.post(`/workorder/${current.value.workorderId}/finish`, {
+    ...finishForm,
+    parts: finishForm.partsReplaced ? finishForm.parts.filter((p) => p.partId) : []
+  })
   ElMessage.success('已提交验收')
   finishDialog.value = false
   load()
@@ -589,12 +607,14 @@ async function openDetail(row) {
 }
 
 onMounted(async () => {
-  const [h, d] = await Promise.all([
+  const [h, d, p] = await Promise.all([
     request.get('/crud/hospital/options'),
-    request.get('/system/dict/type/fault_level')
+    request.get('/system/dict/type/fault_level'),
+    request.get('/crud/part/options')
   ])
   hospitals.value = h.data
   dicts.level = d.data
+  partOptions.value = p.data || []
   load()
 })
 </script>

@@ -8,6 +8,8 @@
         <el-tab-pane v-if="canPart" label="库存调整" name="stock" />
         <el-tab-pane v-if="canPart" label="退料记录" name="returns" />
         <el-tab-pane v-if="canPart" label="库存对账" name="reconcile" />
+        <el-tab-pane v-if="canPart" label="多仓调拨" name="warehouse" />
+        <el-tab-pane v-if="canPart" label="库存报表" name="reports" />
       </el-tabs>
     </div>
     <CrudPage v-if="active === 'part'" resource="part" />
@@ -16,6 +18,8 @@
     <PartStockPage v-else-if="active === 'stock'" />
     <PartReturnsPage v-else-if="active === 'returns'" />
     <PartReconcilePage v-else-if="active === 'reconcile'" />
+    <PartWarehousePage v-else-if="active === 'warehouse'" />
+    <PartReportsPage v-else-if="active === 'reports'" />
   </div>
 </template>
 
@@ -27,6 +31,8 @@ import RequisitionPage from '@/views/resource/requisition/index.vue'
 import PartStockPage from '@/views/resource/parts/stock.vue'
 import PartReturnsPage from '@/views/resource/parts/returns.vue'
 import PartReconcilePage from '@/views/resource/parts/reconcile.vue'
+import PartWarehousePage from '@/views/resource/parts/warehouse.vue'
+import PartReportsPage from '@/views/resource/parts/reports.vue'
 import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
@@ -39,6 +45,8 @@ function pickTab(tab) {
   if (tab === 'stock' && canPart.value) return 'stock'
   if (tab === 'returns' && canPart.value) return 'returns'
   if (tab === 'reconcile' && canPart.value) return 'reconcile'
+  if (tab === 'warehouse' && canPart.value) return 'warehouse'
+  if (tab === 'reports' && canPart.value) return 'reports'
   return canPart.value ? 'part' : 'requisition'
 }
 const active = ref(pickTab(route.query.tab))

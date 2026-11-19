@@ -170,6 +170,34 @@ public class PartsController {
         return Result.ok(partsService.lowStock());
     }
 
+    @GetMapping("/warehouse-stock")
+    @Perm("resource:part:list")
+    public Result<List<Map<String, Object>>> warehouseStock() {
+        return Result.ok(partsService.warehouseStock());
+    }
+
+    @PostMapping("/transfer")
+    @Perm("resource:part:stock")
+    public Result<Void> transfer(@RequestBody Map<String, Object> body) {
+        partsService.transfer(((Number) body.get("partId")).longValue(),
+                (String) body.get("fromWarehouse"), (String) body.get("toWarehouse"),
+                ((Number) body.get("quantity")).intValue(), (String) body.get("reason"));
+        return Result.ok();
+    }
+
+    @GetMapping("/transfers/page")
+    @Perm("resource:part:list")
+    public Result<Map<String, Object>> transferPage(@RequestParam(defaultValue = "1") int pageNum,
+                                                    @RequestParam(defaultValue = "10") int pageSize) {
+        return Result.ok(partsService.transferPage(pageNum, pageSize));
+    }
+
+    @GetMapping("/reports/stock")
+    @Perm("resource:part:list")
+    public Result<Map<String, Object>> stockReports() {
+        return Result.ok(partsService.stockReports());
+    }
+
     private String csv(Object value) {
         String text = value == null ? "" : String.valueOf(value);
         return '"' + text.replace("\"", "\"\"") + '"';

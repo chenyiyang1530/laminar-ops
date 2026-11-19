@@ -140,10 +140,16 @@ public class WorkorderService {
         List<Map<String, Object>> costs = jdbc.queryForList(
                 "select cost_id as `costId`, cost_type as `costType`, cost_name as `costName`, quantity, price, amount, remark " +
                         "from biz_workorder_cost where workorder_id=?", id);
+        List<Map<String, Object>> parts = jdbc.queryForList(
+                "select usage_id as `usageId`, part_id as `partId`, part_name as `partName`, " +
+                        "equipment_id as `equipmentId`, equipment_name as `equipmentName`, quantity, " +
+                        "date_format(create_time,'%Y-%m-%d %H:%i') as `createTime` " +
+                        "from biz_workorder_part where workorder_id=? order by usage_id", id);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("workorder", wo);
         result.put("logs", logs);
         result.put("costs", costs);
+        result.put("parts", parts);
         return result;
     }
 
@@ -329,8 +335,39 @@ public class WorkorderService {
                         "downtime_minutes=?, response_minutes=? where workorder_id=?",
                 report, rootCause, solution, parts, image, downtime, response, id);
         log(id, "finish", "2", "3", report);
+        saveWorkorderParts(id, wo, body.get("parts"));
         notify(id, longOf(wo.get("hospital_id")), "工单已完工待验收：" + wo.get("workorder_no"),
                 "原因：" + rootCause + "；处理：" + solution, "200,201", "2");
+    }
+
+    private void saveWorkorderParts(Long workorderId, Map<String, Object> wo, Object partsObj) {
+        if (!(partsObj instanceof List<?> parts) || parts.isEmpty()) return;
+        jdbc.update("delete from biz_workorder_part where workorder_id=?", workorderId);
+        Long defaultEquipmentId = wo.get("equipment_id") == null ? null : ((Number) wo.get("equipment_id")).longValue();
+        String defaultEquipmentName = wo.get("equipment_name") == null ? null : String.valueOf(wo.get("equipment_name"));
+        for (Object o : parts) {
+            if (!(o instanceof Map<?, ?> item)) continue;
+            Object partValue = item.get("partId");
+            if (partValue == null) continue;
+            Long partId = ((Number) partValue).longValue();
+            int qty = item.get("quantity") == null ? 1 : ((Number) item.get("quantity")).intValue();
+            if (qty <= 0) throw BizException.badRequest("备件数量必须大于 0");
+            Map<String, Object> part = jdbc.queryForMap("select part_name from biz_part where part_id=?", partId);
+            Long equipmentId = item.get("equipmentId") == null ? defaultEquipmentId
+                    : ((Number) item.get("equipmentId")).longValue();
+            String equipmentName = item.get("equipmentName") == null ? defaultEquipmentName
+                    : String.valueOf(item.get("equipmentName"));
+            if (equipmentId != null && (equipmentName == null || equipmentName.isBlank())) {
+                List<Map<String, Object>> eq = jdbc.queryForList(
+                        "select equipment_name from biz_equipment where equipment_id=?", equipmentId);
+                if (!eq.isEmpty()) equipmentName = String.valueOf(eq.get(0).get("equipment_name"));
+            }
+            jdbc.update("insert into biz_workorder_part(company_id,workorder_id,equipment_id,equipment_name," +
+                            "part_id,part_name,quantity,source,operator_id,operator_name,create_time) " +
+                            "values(?,?,?,?,?,?,?,'workorder',?,?,now())",
+                    wo.get("company_id"), workorderId, equipmentId, equipmentName, partId,
+                    part.get("part_name"), qty, AuthContext.userId(), AuthContext.nickName());
+        }
     }
 
     public void accept(Long id, String result, String remark) {

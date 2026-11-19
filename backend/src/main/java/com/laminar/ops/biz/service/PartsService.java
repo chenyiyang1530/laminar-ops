@@ -473,6 +473,87 @@ public class PartsService {
         return jdbc.queryForList(sql + "order by (safety_stock-current_stock) desc");
     }
 
+    public List<Map<String, Object>> warehouseStock() {
+        LoginUser user = AuthContext.require();
+        Long companyId = dataScope.companyId(user);
+        String sql = "select s.part_id as `partId`, p.part_code as `partCode`, p.part_name as `partName`, " +
+                "s.warehouse, s.on_hand_qty as `onHand`, s.reserved_qty as `reserved`, " +
+                "(s.on_hand_qty - s.reserved_qty) as `available` " +
+                "from biz_part_stock s join biz_part p on p.part_id=s.part_id where 1=1 ";
+        if (companyId != null) return jdbc.queryForList(sql + "and s.company_id=? order by s.warehouse, p.part_name", companyId);
+        return jdbc.queryForList(sql + "order by s.warehouse, p.part_name");
+    }
+
+    @Transactional
+    public void transfer(Long partId, String fromWarehouse, String toWarehouse, Integer quantity, String reason) {
+        if (quantity == null || quantity <= 0) throw BizException.badRequest("调拨数量必须大于 0");
+        if (fromWarehouse == null || fromWarehouse.isBlank() || toWarehouse == null || toWarehouse.isBlank()) {
+            throw BizException.badRequest("请选择调出和调入仓库");
+        }
+        if (fromWarehouse.equals(toWarehouse)) throw BizException.badRequest("调出仓库和调入仓库不能相同");
+        Map<String, Object> part = requirePart(partId);
+        checkPartCompany(null, partId);
+        BizStock from = lockStock(partId, fromWarehouse);
+        if (from.onHand - from.reserved < quantity) throw BizException.badRequest("调出仓可用库存不足");
+        BizStock to = lockStock(partId, toWarehouse);
+        jdbc.update("update biz_part_stock set on_hand_qty=on_hand_qty-?, version=version+1, update_time=now() " +
+                "where part_id=? and warehouse=?", quantity, partId, fromWarehouse);
+        jdbc.update("update biz_part_stock set on_hand_qty=on_hand_qty+?, version=version+1, update_time=now() " +
+                "where part_id=? and warehouse=?", quantity, partId, toWarehouse);
+        String no = "TR-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+        jdbc.update("insert into biz_part_transfer(transfer_no,company_id,part_id,from_warehouse,to_warehouse,quantity," +
+                        "reason,operator_id,operator_name,create_time) values(?,?,?,?,?,?,?,?,?,now())",
+                no, part.get("company_id"), partId, fromWarehouse, toWarehouse, quantity, reason,
+                AuthContext.userId(), AuthContext.nickName());
+        writeTxn(part.get("company_id") == null ? null : ((Number) part.get("company_id")).longValue(),
+                partId, fromWarehouse, "TRANSFER_OUT", -quantity, from.onHand, from.onHand - quantity,
+                from.reserved, from.reserved, "TRANSFER", null, "transfer-out-" + no, "仓库调拨：" + fromWarehouse + " → " + toWarehouse);
+        writeTxn(part.get("company_id") == null ? null : ((Number) part.get("company_id")).longValue(),
+                partId, toWarehouse, "TRANSFER_IN", quantity, to.onHand, to.onHand + quantity,
+                to.reserved, to.reserved, "TRANSFER", null, "transfer-in-" + no, "仓库调拨：" + fromWarehouse + " → " + toWarehouse);
+    }
+
+    public Map<String, Object> transferPage(int pageNum, int pageSize) {
+        LoginUser user = AuthContext.require();
+        List<Object> args = new ArrayList<>();
+        StringBuilder where = new StringBuilder(" where 1=1 ");
+        Long companyId = dataScope.companyId(user);
+        if (companyId != null) { where.append(" and t.company_id=? "); args.add(companyId); }
+        Long total = jdbc.queryForObject("select count(*) from biz_part_transfer t" + where, Long.class, args.toArray());
+        args.add(pageSize);
+        args.add(Math.max(0, (pageNum - 1) * pageSize));
+        List<Map<String, Object>> records = jdbc.queryForList(
+                "select t.transfer_id as `transferId`, t.transfer_no as `transferNo`, p.part_name as `partName`, " +
+                        "t.part_id as `partId`, t.from_warehouse as `fromWarehouse`, t.to_warehouse as `toWarehouse`, " +
+                        "t.quantity, t.reason, t.operator_name as `operatorName`, " +
+                        "date_format(t.create_time,'%Y-%m-%d %H:%i:%s') as `createTime` " +
+                        "from biz_part_transfer t left join biz_part p on p.part_id=t.part_id" + where +
+                        " order by t.transfer_id desc limit ? offset ?", args.toArray());
+        return Map.of("records", records, "total", total == null ? 0 : total);
+    }
+
+    public Map<String, Object> stockReports() {
+        LoginUser user = AuthContext.require();
+        Long companyId = dataScope.companyId(user);
+        List<Map<String, Object>> low = lowStock();
+        String slowSql = "select p.part_id as `partId`, p.part_code as `partCode`, p.part_name as `partName`, " +
+                "p.current_stock as `currentStock`, p.safety_stock as `safetyStock`, " +
+                "date_format(max(case when t.txn_type in ('OUTBOUND','MANUAL_OUT','SCRAP_OUT') then t.txn_time end),'%Y-%m-%d') as `lastOutTime`, " +
+                "datediff(now(), max(case when t.txn_type in ('OUTBOUND','MANUAL_OUT','SCRAP_OUT') then t.txn_time end)) as `noOutDays` " +
+                "from biz_part p left join biz_part_txn t on t.part_id=p.part_id " +
+                "where p.status='0' and p.current_stock>0 ";
+        List<Map<String, Object>> slow;
+        if (companyId != null) {
+            slow = jdbc.queryForList(slowSql + "and p.company_id=? group by p.part_id,p.part_code,p.part_name,p.current_stock,p.safety_stock " +
+                    "having noOutDays is null or noOutDays >= 90 order by noOutDays desc", companyId);
+        } else {
+            slow = jdbc.queryForList(slowSql + "group by p.part_id,p.part_code,p.part_name,p.current_stock,p.safety_stock " +
+                    "having noOutDays is null or noOutDays >= 90 order by noOutDays desc");
+        }
+        return Map.of("lowStock", low, "slowMoving", slow);
+    }
+
     public List<Map<String, Object>> transactions(Long partId, int limit) {
         requirePart(partId);
         checkPartCompany(null, partId);
