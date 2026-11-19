@@ -2,7 +2,7 @@
   <div class="app-container">
     <div class="page-card">
       <div class="page-title">
-        <div><h2>备件领用</h2><div class="sub">申请 → 审批 → 出库扣减库存</div></div>
+        <div><h2>备件领用</h2><div class="sub">申请 → 审批预占 → 出库扣减库存</div></div>
         <el-button type="primary" :icon="Plus" @click="openCreate">新建领用</el-button>
       </div>
       <el-radio-group v-model="status" size="small" style="margin-bottom: 10px" @change="load">
@@ -65,7 +65,9 @@
         <el-table-column type="index" label="序号" width="62" align="center" />
         
           <el-table-column prop="partName" label="备件" />
-          <el-table-column prop="quantity" label="数量" width="80" />
+          <el-table-column prop="quantity" label="申请" width="70" />
+          <el-table-column prop="reservedQty" label="预占" width="70" />
+          <el-table-column prop="outboundQty" label="已出库" width="80" />
           <el-table-column prop="amount" label="金额" width="100" />
         </el-table>
       </div>
@@ -87,7 +89,7 @@ const pageNum = ref(1)
 const pageSize = ref(store.pageSize || 10)
 const status = ref('')
 const dialog = ref(false)
-const form = reactive({ workorderNo: '', remark: '', items: [] })
+const form = reactive({ workorderNo: '', remark: '', requestId: '', items: [] })
 const parts = ref([])
 const drawer = ref(false)
 const detail = ref(null)
@@ -98,11 +100,11 @@ async function load() {
   records.value = res.data.records
   total.value = res.data.total
 }
-function openCreate() { Object.assign(form, { workorderNo: '', remark: '', items: [{ partId: undefined, quantity: 1 }] }); dialog.value = true }
+function openCreate() { Object.assign(form, { workorderNo: '', remark: '', requestId: crypto.randomUUID(), items: [{ partId: undefined, quantity: 1 }] }); dialog.value = true }
 async function submit() {
   const items = form.items.filter((i) => i.partId)
   if (!items.length) { ElMessage.warning('请添加备件'); return }
-  await request.post('/parts/requisition', { items, remark: form.remark })
+  await request.post('/parts/requisition', { items, remark: form.remark, requestId: form.requestId })
   ElMessage.success('已提交'); dialog.value = false; load()
 }
 async function approve(row, pass) {

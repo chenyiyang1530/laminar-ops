@@ -30,6 +30,7 @@ export const viewModules = {
   'release/index': () => import('../views/release/index.vue'),
   'resource/library/index': () => import('../views/resource/library/index.vue'),
   'resource/parts/index': () => import('../views/resource/parts/index.vue'),
+  'resource/parts/stock': () => import('../views/resource/parts/stock.vue'),
   'resource/requisition/index': () => import('../views/resource/requisition/index.vue'),
   'staff/approval-config/index': () => import('../views/staff/approval-config/index.vue'),
   'staff/approval-delegate/index': () => import('../views/staff/approval-delegate/index.vue'),

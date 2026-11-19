@@ -369,7 +369,7 @@ public final class CrudRegistry {
                 .field(FieldDef.of("spec", "spec", "规格型号").width(140))
                 .field(FieldDef.of("unit", "unit", "单位").width(70))
                 .field(FieldDef.of("safetyStock", "safety_stock", "安全库存").type("number").min(0).width(100))
-                .field(FieldDef.of("currentStock", "current_stock", "当前库存").type("number").min(0).width(100))
+                .field(FieldDef.of("currentStock", "current_stock", "当前库存").type("number").min(0).form(false).width(100))
                 .field(FieldDef.of("price", "price", "参考单价").type("number").min(0).width(100))
                 .field(FieldDef.of("supplier", "supplier", "供应商").width(170))
                 .field(FieldDef.of("warehouse", "warehouse", "库位").width(130))
@@ -377,8 +377,24 @@ public final class CrudRegistry {
                 .field(FieldDef.of("remark", "remark", "备注").type("textarea").list(false).span(24))
                 .join("cp.company_name as companyName", "left join biz_company cp on cp.company_id=e.company_id"));
 
-        register(ResourceDef.of("document", "biz_document", "doc_id", "图纸文档", "resource:document", "doc_name")
+        register(ResourceDef.of("partEquipment", "biz_part_equipment", "id", "备件兼容设备", "resource:part", "remark")
+                .noHospitalScope()
                 .noAudit()
+                .field(pk("id", "id"))
+                .field(FieldDef.of("companyId", "company_id", "所属公司").type("select").options("company").required().list(false).width(160))
+                .field(FieldDef.of("companyName", "company_name", "公司名称").virtual().form(false).width(180))
+                .field(FieldDef.of("partId", "part_id", "备件").type("select").options("part").query("eq").required().width(180))
+                .field(FieldDef.of("partName", "part_name", "备件名称").virtual().form(false).width(150))
+                .field(FieldDef.of("equipmentId", "equipment_id", "设备").type("select").options("equipment").query("eq").required().width(180))
+                .field(FieldDef.of("equipmentName", "equipment_name", "设备名称").virtual().form(false).width(150))
+                .field(FieldDef.of("relationType", "relation_type", "关系").query("eq").width(110))
+                .field(FieldDef.of("remark", "remark", "备注").type("textarea").list(false).span(24))
+                .join("cp.company_name as `companyName`, p.part_name as `partName`, eq.equipment_name as `equipmentName`",
+                        "left join biz_company cp on cp.company_id=e.company_id " +
+                                "left join biz_part p on p.part_id=e.part_id " +
+                                "left join biz_equipment eq on eq.equipment_id=e.equipment_id"));
+
+        register(ResourceDef.of("document", "biz_document", "doc_id", "图纸文档", "resource:document", "doc_name")                .noAudit()
                 .noHospitalScope()
                 .field(pk("docId", "doc_id"))
                 .field(FieldDef.of("companyId", "company_id", "所属公司").type("select").options("company").required().list(false).width(160))

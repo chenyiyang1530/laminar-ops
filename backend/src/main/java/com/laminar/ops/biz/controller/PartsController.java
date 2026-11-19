@@ -69,4 +69,11 @@ public class PartsController {
                 ((Number) body.get("quantity")).intValue(), (String) body.get("remark"));
         return Result.ok();
     }
+
+    @GetMapping("/{partId}/transactions")
+    @Perm("resource:part:list")
+    public Result<java.util.List<Map<String, Object>>> transactions(@PathVariable Long partId,
+                                                                   @RequestParam(defaultValue = "20") int limit) {
+        return Result.ok(partsService.transactions(partId, limit));
+    }
 }
