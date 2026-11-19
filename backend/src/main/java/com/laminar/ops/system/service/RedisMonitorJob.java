@@ -25,6 +25,7 @@ public class RedisMonitorJob {
 
     private final StringRedisTemplate redis;
     private final SystemAlertService systemAlertService;
+    private final RedisLaminarHealthIndicator redisHealth;
 
     @Value("${laminar.redis.monitor-enabled:true}")
     private boolean enabled;
@@ -38,11 +39,15 @@ public class RedisMonitorJob {
     @Value("${laminar.redis.disk-warning-percent:85}")
     private int diskWarningPercent;
 
+    @Value("${laminar.redis.slowlog-warning-count:1}")
+    private long slowLogWarningCount;
+
     @Scheduled(fixedDelay = 300_000L, initialDelay = 60_000L)
     public void check() {
         if (!enabled) return;
         checkMemory();
         checkDisk();
+        checkSlowLog();
     }
 
     private void checkMemory() {
@@ -79,6 +84,19 @@ public class RedisMonitorJob {
             }
         } catch (Exception e) {
             log.debug("Redis 磁盘巡检不可用: {}", e.getMessage());
+        }
+    }
+
+    private void checkSlowLog() {
+        try {
+            long count = redisHealth.slowLogCount();
+            if (count >= slowLogWarningCount && count > 0) {
+                systemAlertService.error("redis-slowlog", "Redis 慢查询告警",
+                        String.format("Redis SLOWLOG 当前有 %d 条慢查询，阈值 %d 条；请检查大 key、复杂命令和网络延迟",
+                                count, slowLogWarningCount));
+            }
+        } catch (Exception e) {
+            log.debug("Redis 慢查询巡检不可用: {}", e.getMessage());
         }
     }
 

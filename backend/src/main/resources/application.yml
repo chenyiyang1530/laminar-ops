@@ -77,6 +77,7 @@ management:
   endpoint:
     health:
       show-details: never
+      show-components: always
       probes:
         enabled: true
   health:
@@ -109,6 +110,7 @@ laminar:
     data-dir: ${REDIS_DATA_DIR:D:/ideaWork/redis8-service/data}
     memory-warning-percent: ${REDIS_MEMORY_WARN:80}
     disk-warning-percent: ${REDIS_DISK_WARN:85}
+    slowlog-warning-count: ${REDIS_SLOWLOG_WARN:1}
   archive:
     retention-months: 6
   leave:

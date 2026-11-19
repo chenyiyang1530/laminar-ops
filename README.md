@@ -200,6 +200,8 @@ npm run dev:portal                     # http://localhost:5174/login
 
 2. **后端托管**（默认，简单演示）：`npm run build` 产出 `/app` 基址，`npm run build:portal` 产出 `/portal` 基址，直接由 Spring Boot 托管。
 
+Windows 服务器还建议按 [Redis8 部署与开机自启](docs/redis8-deployment.md) 安装 Redis8 服务、后端开机任务，并配置 Redis 内存/慢查询告警。
+
 ## 快速启动
 
 ### 1. 初始化数据库

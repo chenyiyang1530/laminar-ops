@@ -4,6 +4,7 @@ import com.laminar.ops.common.Result;
 import com.laminar.ops.common.BizException;
 import com.laminar.ops.security.AuthContext;
 import com.laminar.ops.security.Perm;
+import com.laminar.ops.system.service.RedisLaminarHealthIndicator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisCallback;
@@ -33,6 +34,7 @@ public class MonitorManageController {
 
     private final StringRedisTemplate redis;
     private final JdbcTemplate jdbc;
+    private final RedisLaminarHealthIndicator redisHealth;
 
     @GetMapping("/online")
     @Perm("monitor:server:view")
@@ -116,6 +118,16 @@ public class MonitorManageController {
         } catch (Exception e) {
             map.put("error", e.getMessage());
         }
+        return Result.ok(map);
+    }
+
+    @GetMapping("/redis-health")
+    @Perm("monitor:cache:view")
+    public Result<Map<String, Object>> redisHealth() {
+        var health = redisHealth.health();
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("status", health.getStatus().getCode());
+        map.put("details", health.getDetails());
         return Result.ok(map);
     }
 
