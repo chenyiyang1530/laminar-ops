@@ -1,6 +1,7 @@
 package com.laminar.ops.biz.service;
 
 import com.laminar.ops.common.BizException;
+import com.laminar.ops.common.SystemAlertService;
 import com.laminar.ops.security.AuthContext;
 import com.laminar.ops.security.DataScopeService;
 import com.laminar.ops.security.LoginUser;
@@ -29,6 +30,7 @@ public class PartsService {
 
     private final JdbcTemplate jdbc;
     private final DataScopeService dataScope;
+    private final SystemAlertService systemAlertService;
 
     public Map<String, Object> page(int pageNum, int pageSize, String status) {
         LoginUser user = AuthContext.require();
@@ -225,6 +227,145 @@ public class PartsService {
                 partId, warehouse, "in".equals(type) ? "MANUAL_IN" : "MANUAL_OUT", delta,
                 before.onHand, before.onHand + delta, before.reserved, before.reserved,
                 "MANUAL", null, "manual-" + UUID.randomUUID(), remark);
+    }
+
+    public Map<String, Object> adjustmentPage(int pageNum, int pageSize, String status) {
+        LoginUser user = AuthContext.require();
+        List<Object> args = new ArrayList<>();
+        StringBuilder where = new StringBuilder(" where 1=1 ");
+        if (status != null && !status.isBlank()) { where.append(" and a.status=? "); args.add(status); }
+        Long companyId = dataScope.companyId(user);
+        if (companyId != null) { where.append(" and a.company_id=? "); args.add(companyId); }
+        Long total = jdbc.queryForObject("select count(*) from biz_part_adjustment a" + where, Long.class, args.toArray());
+        args.add(pageSize);
+        args.add(Math.max(0, (pageNum - 1) * pageSize));
+        List<Map<String, Object>> records = jdbc.queryForList(
+                "select a.adjustment_id as `adjustmentId`, a.adjustment_no as `adjustmentNo`, a.part_id as `partId`, " +
+                        "p.part_name as `partName`, a.warehouse, a.adjust_type as `adjustType`, a.quantity, " +
+                        "a.reason_type as `reasonType`, a.reason, a.status, a.applicant_name as `applicantName`, " +
+                        "a.approve_by as `approveBy`, date_format(a.approve_time,'%Y-%m-%d %H:%i') as `approveTime`, " +
+                        "a.before_on_hand as `beforeOnHand`, a.after_on_hand as `afterOnHand`, " +
+                        "date_format(a.create_time,'%Y-%m-%d %H:%i') as `createTime` " +
+                        "from biz_part_adjustment a left join biz_part p on p.part_id=a.part_id" +
+                        where + " order by a.adjustment_id desc limit ? offset ?", args.toArray());
+        return Map.of("records", records, "total", total == null ? 0 : total);
+    }
+
+    @Transactional
+    public Long createAdjustment(Map<String, Object> body) {
+        LoginUser user = AuthContext.require();
+        Long partId = longOf(body.get("partId"));
+        String type = str(body.get("type")).trim();
+        int quantity = body.get("quantity") == null ? 0 : ((Number) body.get("quantity")).intValue();
+        String reasonType = str(body.get("reasonType")).trim();
+        String reason = str(body.get("reason")).trim();
+        if (partId == null || quantity <= 0) throw BizException.badRequest("备件和数量不能为空");
+        if (!"in".equals(type) && !"out".equals(type)) throw BizException.badRequest("库存类型只能是 in 或 out");
+        if (reasonType.isBlank() || reason.isBlank()) throw BizException.badRequest("请填写调整原因类型和原因");
+        Map<String, Object> part = requirePart(partId);
+        checkPartCompany(null, partId);
+        String no = "ADJ-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+        jdbc.update("insert into biz_part_adjustment(adjustment_no,company_id,part_id,warehouse,adjust_type,quantity," +
+                        "reason_type,reason,status,applicant_id,applicant_name,create_time) values(?,?,?,?,?,?,?,?,'0',?,?,now())",
+                no, part.get("company_id"), partId, warehouseOf(part), type, quantity, reasonType, reason,
+                user.getUserId(), user.getNickName());
+        return jdbc.queryForObject("select last_insert_id()", Long.class);
+    }
+
+    @Transactional
+    public void approveAdjustment(Long id, boolean pass, String remark) {
+        LoginUser user = AuthContext.require();
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select * from biz_part_adjustment where adjustment_id=? for update", id);
+        if (rows.isEmpty()) throw BizException.badRequest("库存调整单不存在");
+        Map<String, Object> adj = rows.get(0);
+        Long companyId = adj.get("company_id") == null ? null : ((Number) adj.get("company_id")).longValue();
+        if (dataScope.companyId(user) != null && !dataScope.companyId(user).equals(companyId)) {
+            throw BizException.forbidden("无权审批其他公司的库存调整");
+        }
+        if (!"0".equals(String.valueOf(adj.get("status")))) throw BizException.badRequest("调整单已处理");
+        int changed = jdbc.update("update biz_part_adjustment set status=?, approve_by=?, approve_time=now(), " +
+                        "reason=concat(reason, coalesce(?, '')) where adjustment_id=? and status='0'",
+                pass ? "1" : "2", user.getNickName(), remark == null || remark.isBlank() ? "" : "；审批意见：" + remark, id);
+        if (changed != 1) throw BizException.badRequest("调整单状态已变化");
+        if (!pass) return;
+
+        Long partId = ((Number) adj.get("part_id")).longValue();
+        String warehouse = str(adj.get("warehouse"));
+        String type = str(adj.get("adjust_type"));
+        int qty = ((Number) adj.get("quantity")).intValue();
+        Map<String, Object> part = requirePart(partId);
+        BizStock before = lockStock(partId, warehouse);
+        int delta = "in".equals(type) ? qty : -qty;
+        if (before.onHand + delta < 0) throw BizException.badRequest("库存不足，无法出库");
+        jdbc.update("update biz_part_stock set on_hand_qty=on_hand_qty+?, version=version+1, update_time=now() " +
+                "where part_id=? and warehouse=?", delta, partId, warehouse);
+        syncCurrentStock(partId, warehouse);
+        writeTxn(companyId, partId, warehouse, "in".equals(type) ? "ADJUST_IN" : "ADJUST_OUT", delta,
+                before.onHand, before.onHand + delta, before.reserved, before.reserved,
+                "ADJUSTMENT", id, "adjust-" + id, "库存调整单 " + adj.get("adjustment_no"));
+        jdbc.update("update biz_part_adjustment set before_on_hand=?, after_on_hand=? where adjustment_id=?",
+                before.onHand, before.onHand + delta, id);
+    }
+
+    @Transactional
+    public void returnItem(Long reqId, Long itemId, Integer quantity, String reason) {
+        if (quantity == null || quantity <= 0) throw BizException.badRequest("退料数量必须大于 0");
+        if (reason == null || reason.isBlank()) throw BizException.badRequest("请填写退料原因");
+        Map<String, Object> req = require(reqId);
+        if (!"2".equals(String.valueOf(req.get("status")))) throw BizException.badRequest("只有已出库领用单可以退料");
+        List<Map<String, Object>> items = jdbc.queryForList(
+                "select item_id, part_id, part_name, outbound_qty, returned_qty from biz_part_requisition_item " +
+                        "where item_id=? and req_id=? for update", itemId, reqId);
+        if (items.isEmpty()) throw BizException.badRequest("领用明细不存在");
+        Map<String, Object> item = items.get(0);
+        int outbound = ((Number) item.get("outbound_qty")).intValue();
+        int returned = ((Number) item.get("returned_qty")).intValue();
+        if (quantity > outbound - returned) throw BizException.badRequest("退料数量不能超过未退数量");
+        Long partId = ((Number) item.get("part_id")).longValue();
+        Map<String, Object> part = requirePart(partId);
+        checkPartCompany(req, partId);
+        String warehouse = warehouseOf(part);
+        BizStock before = lockStock(partId, warehouse);
+        jdbc.update("update biz_part_stock set on_hand_qty=on_hand_qty+?, version=version+1, update_time=now() " +
+                "where part_id=? and warehouse=?", quantity, partId, warehouse);
+        jdbc.update("update biz_part_requisition_item set returned_qty=returned_qty+? where item_id=?",
+                quantity, itemId);
+        syncCurrentStock(partId, warehouse);
+        String no = "RT-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+        jdbc.update("insert into biz_part_return(return_no,company_id,req_id,item_id,part_id,quantity,reason," +
+                        "operator_id,operator_name,create_time) values(?,?,?,?,?,?,?,?,?,now())",
+                no, req.get("company_id"), reqId, itemId, partId, quantity, reason,
+                AuthContext.userId(), AuthContext.nickName());
+        writeTxn(req.get("company_id") == null ? null : ((Number) req.get("company_id")).longValue(),
+                partId, warehouse, "RETURN_IN", quantity, before.onHand, before.onHand + quantity,
+                before.reserved, before.reserved, "PART_RETURN", reqId, "return-" + no, "领用退料");
+        Integer remaining = jdbc.queryForObject(
+                "select count(*) from biz_part_requisition_item where req_id=? and outbound_qty > returned_qty",
+                Integer.class, reqId);
+        if (remaining != null && remaining == 0) {
+            jdbc.update("update biz_part_requisition set status='4' where req_id=? and status='2'", reqId);
+        }
+    }
+
+    public int reconcile() {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select p.part_id, p.company_id, p.part_name, p.current_stock, coalesce(sum(s.on_hand_qty),0) stock_sum " +
+                        "from biz_part p left join biz_part_stock s on s.part_id=p.part_id " +
+                        "group by p.part_id, p.company_id, p.part_name, p.current_stock " +
+                        "having p.current_stock <> coalesce(sum(s.on_hand_qty),0)");
+        for (Map<String, Object> row : rows) {
+            int book = ((Number) row.get("current_stock")).intValue();
+            int sum = ((Number) row.get("stock_sum")).intValue();
+            jdbc.update("insert into biz_part_reconcile_log(company_id,part_id,part_name,book_stock,stock_sum,difference,checked_at) " +
+                            "values(?,?,?,?,?,?,now())",
+                    row.get("company_id"), row.get("part_id"), row.get("part_name"), book, sum, book - sum);
+            systemAlertService.error("part-stock-mismatch-" + row.get("part_id"), "备件库存对账异常",
+                    "备件 " + row.get("part_name") + " 账面 " + book + "，库存汇总 " + sum + "，差异 " + (book - sum));
+        }
+        return rows.size();
     }
 
     public List<Map<String, Object>> transactions(Long partId, int limit) {

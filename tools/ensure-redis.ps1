@@ -9,10 +9,11 @@ $data = 'D:\ideaWork\redis8-service\data'
 
 function Test-RedisPort {
     try {
-        return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+        if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) { return $true }
     } catch {
-        return $false
+        # 非管理员会话可能无法读取连接表，继续用 TCP 探测
     }
+    return [bool](Test-NetConnection -ComputerName 127.0.0.1 -Port $Port -InformationLevel Quiet -WarningAction SilentlyContinue)
 }
 
 if (Test-RedisPort) {

@@ -40,7 +40,7 @@ if (Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyCont
   throw "8080 已被占用但健康检查失败，请先查看占用进程或停止旧进程"
 }
 
-if (-not (Get-NetTCPConnection -LocalPort 6380 -State Listen -ErrorAction SilentlyContinue)) {
+if (-not (Test-NetConnection -ComputerName 127.0.0.1 -Port 6380 -InformationLevel Quiet -WarningAction SilentlyContinue)) {
   Write-Host "Redis8 未运行，正在自动启动..." -ForegroundColor Yellow
   & (Join-Path $root 'tools\ensure-redis.ps1') -Port 6380
   if ($LASTEXITCODE -ne 0) { throw "Redis8 启动失败" }

@@ -64,10 +64,46 @@ public class PartsController {
 
     @PostMapping("/stock")
     @Perm("resource:part:stock")
-    public Result<Void> stock(@RequestBody Map<String, Object> body) {
-        partsService.stock(((Number) body.get("partId")).longValue(), String.valueOf(body.get("type")),
-                ((Number) body.get("quantity")).intValue(), (String) body.get("remark"));
+    public Result<Long> stock(@RequestBody Map<String, Object> body) {
+        return Result.ok(partsService.createAdjustment(body));
+    }
+
+    @GetMapping("/adjustment/page")
+    @Perm("resource:part:list")
+    public Result<Map<String, Object>> adjustmentPage(@RequestParam(defaultValue = "1") int pageNum,
+                                                      @RequestParam(defaultValue = "10") int pageSize,
+                                                      @RequestParam(required = false) String status) {
+        return Result.ok(partsService.adjustmentPage(pageNum, pageSize, status));
+    }
+
+    @PostMapping("/adjustment/{id}/approve")
+    @Perm("resource:requisition:approve")
+    public Result<Void> approveAdjustment(@PathVariable Long id,
+                                           @RequestBody(required = false) Map<String, String> body) {
+        partsService.approveAdjustment(id, true, body == null ? null : body.get("remark"));
         return Result.ok();
+    }
+
+    @PostMapping("/adjustment/{id}/reject")
+    @Perm("resource:requisition:approve")
+    public Result<Void> rejectAdjustment(@PathVariable Long id,
+                                          @RequestBody(required = false) Map<String, String> body) {
+        partsService.approveAdjustment(id, false, body == null ? null : body.get("remark"));
+        return Result.ok();
+    }
+
+    @PostMapping("/requisition/{id}/return")
+    @Perm("resource:requisition:out")
+    public Result<Void> returnItem(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+        partsService.returnItem(id, ((Number) body.get("itemId")).longValue(),
+                ((Number) body.get("quantity")).intValue(), (String) body.get("reason"));
+        return Result.ok();
+    }
+
+    @PostMapping("/reconcile")
+    @Perm("resource:part:stock")
+    public Result<Integer> reconcile() {
+        return Result.ok(partsService.reconcile());
     }
 
     @GetMapping("/{partId}/transactions")

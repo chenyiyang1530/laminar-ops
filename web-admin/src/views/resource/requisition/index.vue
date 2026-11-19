@@ -29,6 +29,7 @@
             <el-button v-if="row.status === '0'" link type="success" @click="approve(row, true)">批准</el-button>
             <el-button v-if="row.status === '0'" link type="danger" @click="approve(row, false)">驳回</el-button>
             <el-button v-if="row.status === '1'" link type="primary" @click="outbound(row)">出库</el-button>
+            <el-button v-if="row.status === '2'" link type="warning" @click="openReturn(row)">退料</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -53,6 +54,24 @@
         </el-form-item>
       </el-form>
       <template #footer><el-button @click="dialog = false">取消</el-button><el-button type="primary" @click="submit">提交申请</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="returnDialog" title="领用退料" width="520px">
+      <el-form :model="returnForm" label-width="84px">
+        <el-form-item label="退料明细">
+          <el-select v-model="returnForm.itemId" style="width: 100%" placeholder="选择领用明细">
+            <el-option v-for="it in returnItems" :key="it.itemId"
+              :label="`${it.partName}（可退 ${(it.outboundQty || 0) - (it.returnedQty || 0)}）`"
+              :value="it.itemId" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="数量"><el-input-number v-model="returnForm.quantity" :min="1" :precision="0" style="width: 100%" /></el-form-item>
+        <el-form-item label="原因"><el-input v-model="returnForm.reason" type="textarea" :rows="2" placeholder="请填写退料原因" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="returnDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitReturn">确认退料</el-button>
+      </template>
     </el-dialog>
 
     <el-drawer v-model="drawer" size="480px" title="领用详情">
@@ -93,6 +112,9 @@ const form = reactive({ workorderNo: '', remark: '', requestId: '', items: [] })
 const parts = ref([])
 const drawer = ref(false)
 const detail = ref(null)
+const returnDialog = ref(false)
+const returnItems = ref([])
+const returnForm = reactive({ reqId: null, itemId: null, quantity: 1, reason: '' })
 const statusText = (s) => ({ 0: '待审批', 1: '已批准', 2: '已出库', 3: '已驳回', 4: '已退回' }[s] || s)
 
 async function load() {
@@ -118,6 +140,22 @@ async function outbound(row) {
   ElMessage.success('已出库'); load()
 }
 async function openDetail(row) { drawer.value = true; detail.value = (await request.get('/parts/requisition/' + row.reqId)).data }
+async function openReturn(row) {
+  const d = (await request.get('/parts/requisition/' + row.reqId)).data
+  returnItems.value = (d.items || []).filter((it) => (it.outboundQty || 0) > (it.returnedQty || 0))
+  if (!returnItems.value.length) { ElMessage.warning('没有可退数量'); return }
+  Object.assign(returnForm, { reqId: row.reqId, itemId: returnItems.value[0].itemId, quantity: 1, reason: '' })
+  returnDialog.value = true
+}
+async function submitReturn() {
+  if (!returnForm.itemId || !returnForm.reason) { ElMessage.warning('请选择明细并填写原因'); return }
+  await request.post(`/parts/requisition/${returnForm.reqId}/return`, {
+    itemId: returnForm.itemId, quantity: returnForm.quantity, reason: returnForm.reason
+  })
+  ElMessage.success('退料已入库并记录审计')
+  returnDialog.value = false
+  load()
+}
 onMounted(async () => { parts.value = (await request.get('/crud/part/options')).data; load() })
 </script>
 <style scoped>.pager { margin-top: 14px; justify-content: flex-end; }</style>
