@@ -147,11 +147,12 @@ public class PartsController {
         Map<String, Object> page = partsService.returnPage(1, 10000);
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> rows = (List<Map<String, Object>>) page.get("records");
-        StringBuilder csv = new StringBuilder("\uFEFF退料单号,领用单号,备件,数量,原因,操作人,时间\n");
+        StringBuilder csv = new StringBuilder("\uFEFF退料单号,领用单号,备件,使用设备,数量,原因,操作人,时间\n");
         for (Map<String, Object> row : rows) {
             csv.append(csv(row.get("returnNo"))).append(',')
                     .append(csv(row.get("reqNo"))).append(',')
                     .append(csv(row.get("partName"))).append(',')
+                    .append(csv(row.get("equipmentName"))).append(',')
                     .append(row.get("quantity")).append(',')
                     .append(csv(row.get("reason"))).append(',')
                     .append(csv(row.get("operatorName"))).append(',')

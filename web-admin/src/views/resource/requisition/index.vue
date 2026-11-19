@@ -36,7 +36,7 @@
       <el-pagination v-model:current-page="pageNum" v-model:page-size="pageSize" :total="total" layout="total, prev, pager, next" class="pager" @change="load" />
     </div>
 
-    <el-dialog v-model="dialog" title="新建领用" width="620px">
+    <el-dialog v-model="dialog" title="新建领用" width="780px">
       <el-form label-width="84px">
         <el-form-item label="关联工单"><el-input v-model="form.workorderNo" placeholder="选填，工单号" /></el-form-item>
         <el-form-item label="备注"><el-input v-model="form.remark" /></el-form-item>
@@ -46,10 +46,13 @@
               <el-select v-model="it.partId" filterable placeholder="选择备件" style="flex: 1">
                 <el-option v-for="p in parts" :key="p.value" :label="p.label" :value="p.value" />
               </el-select>
-              <el-input-number v-model="it.quantity" :min="1" style="width: 120px" />
+              <el-select v-model="it.equipmentId" filterable clearable placeholder="使用设备（选填）" style="flex: 1">
+                <el-option v-for="e in equipmentOptions" :key="e.value" :label="e.label" :value="e.value" />
+              </el-select>
+              <el-input-number v-model="it.quantity" :min="1" style="width: 110px" />
               <el-button link type="danger" @click="form.items.splice(i, 1)">删除</el-button>
             </div>
-            <el-button size="small" @click="form.items.push({ partId: undefined, quantity: 1 })">+ 添加备件</el-button>
+            <el-button size="small" @click="form.items.push({ partId: undefined, equipmentId: undefined, quantity: 1 })">+ 添加备件</el-button>
           </div>
         </el-form-item>
       </el-form>
@@ -84,6 +87,7 @@
         <el-table-column type="index" label="序号" width="62" align="center" />
         
           <el-table-column prop="partName" label="备件" />
+          <el-table-column prop="equipmentName" label="使用设备" width="130" />
           <el-table-column prop="quantity" label="申请" width="70" />
           <el-table-column prop="reservedQty" label="预占" width="70" />
           <el-table-column prop="outboundQty" label="已出库" width="80" />
@@ -114,6 +118,7 @@ const drawer = ref(false)
 const detail = ref(null)
 const returnDialog = ref(false)
 const returnItems = ref([])
+const equipmentOptions = ref([])
 const returnForm = reactive({ reqId: null, itemId: null, quantity: 1, reason: '' })
 const statusText = (s) => ({ 0: '待审批', 1: '已批准', 2: '已出库', 3: '已驳回', 4: '已退回' }[s] || s)
 
@@ -122,7 +127,7 @@ async function load() {
   records.value = res.data.records
   total.value = res.data.total
 }
-function openCreate() { Object.assign(form, { workorderNo: '', remark: '', requestId: crypto.randomUUID(), items: [{ partId: undefined, quantity: 1 }] }); dialog.value = true }
+function openCreate() { Object.assign(form, { workorderNo: '', remark: '', requestId: crypto.randomUUID(), items: [{ partId: undefined, equipmentId: undefined, quantity: 1 }] }); dialog.value = true }
 async function submit() {
   const items = form.items.filter((i) => i.partId)
   if (!items.length) { ElMessage.warning('请添加备件'); return }
@@ -156,6 +161,10 @@ async function submitReturn() {
   returnDialog.value = false
   load()
 }
-onMounted(async () => { parts.value = (await request.get('/crud/part/options')).data; load() })
+onMounted(async () => {
+  parts.value = (await request.get('/crud/part/options')).data
+  equipmentOptions.value = (await request.get('/crud/equipment/options')).data || []
+  load()
+})
 </script>
 <style scoped>.pager { margin-top: 14px; justify-content: flex-end; }</style>

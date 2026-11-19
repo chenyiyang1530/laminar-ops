@@ -58,7 +58,8 @@ public class PartsService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("requisition", req);
         result.put("items", jdbc.queryForList(
-                "select item_id as `itemId`, part_id as `partId`, part_name as `partName`, spec, " +
+                "select item_id as `itemId`, part_id as `partId`, equipment_id as `equipmentId`, " +
+                        "equipment_name as `equipmentName`, part_name as `partName`, spec, " +
                         "quantity, reserved_qty as `reservedQty`, outbound_qty as `outboundQty`, " +
                         "returned_qty as `returnedQty`, price, amount from biz_part_requisition_item where req_id=?", id));
         return result;
@@ -103,7 +104,21 @@ public class PartsService {
             BigDecimal price = part.get("price") == null ? BigDecimal.ZERO : (BigDecimal) part.get("price");
             BigDecimal amount = price.multiply(BigDecimal.valueOf(qty));
             total = total.add(amount);
-            rows.add(new Object[]{partId, part.get("part_name"), part.get("spec"), qty, price, amount, warehouse});
+            Long equipmentId = longOf(item.get("equipmentId"));
+            String equipmentName = "";
+            if (equipmentId != null) {
+                List<Map<String, Object>> equipment = jdbc.queryForList(
+                        "select equipment_name, company_id from biz_equipment where equipment_id=?", equipmentId);
+                if (equipment.isEmpty()) throw BizException.badRequest("实际使用设备不存在");
+                Long equipmentCompany = equipment.get(0).get("company_id") == null
+                        ? null : ((Number) equipment.get(0).get("company_id")).longValue();
+                if (partCompany != null && equipmentCompany != null && !partCompany.equals(equipmentCompany)) {
+                    throw BizException.forbidden("备件和设备不属于同一公司");
+                }
+                equipmentName = String.valueOf(equipment.get(0).get("equipment_name"));
+            }
+            rows.add(new Object[]{partId, equipmentId, equipmentName, part.get("part_name"),
+                    part.get("spec"), qty, price, amount, warehouse});
         }
         Long finalCompanyId = companyId;
         KeyHolder holder = new GeneratedKeyHolder();
@@ -134,8 +149,8 @@ public class PartsService {
         }
         Long reqId = holder.getKey() == null ? 0L : holder.getKey().longValue();
         for (Object[] r : rows) {
-            jdbc.update("insert into biz_part_requisition_item(req_id,part_id,part_name,spec,quantity,price,amount) values(?,?,?,?,?,?,?)",
-                    reqId, r[0], r[1], r[2], r[3], r[4], r[5]);
+            jdbc.update("insert into biz_part_requisition_item(req_id,part_id,equipment_id,equipment_name,part_name,spec,quantity,price,amount) values(?,?,?,?,?,?,?,?,?)",
+                    reqId, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7]);
         }
         return reqId;
     }
@@ -342,7 +357,7 @@ public class PartsService {
         Map<String, Object> req = require(reqId);
         if (!"2".equals(String.valueOf(req.get("status")))) throw BizException.badRequest("只有已出库领用单可以退料");
         List<Map<String, Object>> items = jdbc.queryForList(
-                "select item_id, part_id, part_name, outbound_qty, returned_qty from biz_part_requisition_item " +
+                "select item_id, part_id, equipment_id, part_name, outbound_qty, returned_qty from biz_part_requisition_item " +
                         "where item_id=? and req_id=? for update", itemId, reqId);
         if (items.isEmpty()) throw BizException.badRequest("领用明细不存在");
         Map<String, Object> item = items.get(0);
@@ -361,9 +376,9 @@ public class PartsService {
         syncCurrentStock(partId, warehouse);
         String no = "RT-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
                 + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
-        jdbc.update("insert into biz_part_return(return_no,company_id,req_id,item_id,part_id,quantity,reason," +
-                        "operator_id,operator_name,create_time) values(?,?,?,?,?,?,?,?,?,now())",
-                no, req.get("company_id"), reqId, itemId, partId, quantity, reason,
+        jdbc.update("insert into biz_part_return(return_no,company_id,req_id,item_id,part_id,equipment_id,quantity,reason," +
+                        "operator_id,operator_name,create_time) values(?,?,?,?,?,?,?,?,?,?,now())",
+                no, req.get("company_id"), reqId, itemId, partId, item.get("equipment_id"), quantity, reason,
                 AuthContext.userId(), AuthContext.nickName());
         writeTxn(req.get("company_id") == null ? null : ((Number) req.get("company_id")).longValue(),
                 partId, warehouse, "RETURN_IN", quantity, before.onHand, before.onHand + quantity,
@@ -436,10 +451,11 @@ public class PartsService {
         args.add(Math.max(0, (pageNum - 1) * pageSize));
         List<Map<String, Object>> records = jdbc.queryForList(
                 "select r.return_id as `returnId`, r.return_no as `returnNo`, r.req_id as `reqId`, " +
-                        "q.req_no as `reqNo`, r.part_id as `partId`, p.part_name as `partName`, r.quantity, " +
+                        "q.req_no as `reqNo`, r.part_id as `partId`, p.part_name as `partName`, " +
+                        "r.equipment_id as `equipmentId`, e.equipment_name as `equipmentName`, r.quantity, " +
                         "r.reason, r.operator_name as `operatorName`, date_format(r.create_time,'%Y-%m-%d %H:%i:%s') as `createTime` " +
                         "from biz_part_return r left join biz_part_requisition q on q.req_id=r.req_id " +
-                        "left join biz_part p on p.part_id=r.part_id" + where +
+                        "left join biz_part p on p.part_id=r.part_id left join biz_equipment e on e.equipment_id=r.equipment_id" + where +
                         " order by r.return_id desc limit ? offset ?", args.toArray());
         return Map.of("records", records, "total", total == null ? 0 : total);
     }
@@ -471,7 +487,7 @@ public class PartsService {
     }
 
     private List<Map<String, Object>> items(Long reqId) {
-        return jdbc.queryForList("select item_id, part_id, part_name, quantity, reserved_qty, outbound_qty " +
+        return jdbc.queryForList("select item_id, part_id, equipment_id, equipment_name, part_name, quantity, reserved_qty, outbound_qty " +
                 "from biz_part_requisition_item where req_id=? order by item_id", reqId);
     }
 

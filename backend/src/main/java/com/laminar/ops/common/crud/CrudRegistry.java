@@ -390,7 +390,10 @@ public final class CrudRegistry {
                 .field(FieldDef.of("deviceTypeId", "device_type_id", "设备类型").type("select").options("deviceType").query("eq").width(150))
                 .field(FieldDef.of("deviceTypeName", "device_type_name", "设备类型名称").virtual().form(false).width(150))
                 .field(FieldDef.of("deviceModel", "device_model", "设备型号").query("like").width(150))
-                .field(FieldDef.of("relationType", "relation_type", "关系").query("eq").width(110))
+                .field(FieldDef.of("effectiveFrom", "effective_from", "生效日期").type("date").width(120))
+                .field(FieldDef.of("effectiveTo", "effective_to", "失效日期").type("date").width(120))
+                .field(FieldDef.of("priority", "priority", "优先级").type("number").min(0).width(90))
+                .field(FieldDef.of("relationType", "relation_type", "关系").type("dict").dict("part_relation_type").query("eq").width(110))
                 .field(FieldDef.of("remark", "remark", "备注").type("textarea").list(false).span(24))
                 .join("cp.company_name as `companyName`, p.part_name as `partName`, eq.equipment_name as `equipmentName`, dt.type_name as `deviceTypeName`",
                         "left join biz_company cp on cp.company_id=e.company_id " +

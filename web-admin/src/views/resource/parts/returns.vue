@@ -11,6 +11,7 @@
       <el-table-column prop="returnNo" label="退料单号" width="190" />
       <el-table-column prop="reqNo" label="领用单号" width="180" />
       <el-table-column prop="partName" label="备件" min-width="160" />
+      <el-table-column prop="equipmentName" label="使用设备" width="140" />
       <el-table-column prop="quantity" label="数量" width="80" />
       <el-table-column prop="reason" label="原因" min-width="180" show-overflow-tooltip />
       <el-table-column prop="operatorName" label="操作人" width="110" />
