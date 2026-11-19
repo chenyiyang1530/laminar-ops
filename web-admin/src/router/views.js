@@ -34,6 +34,7 @@ export const viewModules = {
   'resource/parts/reports': () => import('../views/resource/parts/reports.vue'),
   'resource/parts/returns': () => import('../views/resource/parts/returns.vue'),
   'resource/parts/stock': () => import('../views/resource/parts/stock.vue'),
+  'resource/parts/stocktake': () => import('../views/resource/parts/stocktake.vue'),
   'resource/parts/warehouse': () => import('../views/resource/parts/warehouse.vue'),
   'resource/requisition/index': () => import('../views/resource/requisition/index.vue'),
   'staff/approval-config/index': () => import('../views/staff/approval-config/index.vue'),

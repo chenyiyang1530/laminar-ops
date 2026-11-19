@@ -198,6 +198,42 @@ public class PartsController {
         return Result.ok(partsService.stockReports());
     }
 
+    @GetMapping("/stocktake/page")
+    @Perm("resource:part:list")
+    public Result<Map<String, Object>> stocktakePage(@RequestParam(defaultValue = "1") int pageNum,
+                                                     @RequestParam(defaultValue = "10") int pageSize,
+                                                     @RequestParam(required = false) String status) {
+        return Result.ok(partsService.stocktakePage(pageNum, pageSize, status));
+    }
+
+    @PostMapping("/stocktake")
+    @Perm("resource:part:stock")
+    public Result<Long> createStocktake(@RequestBody Map<String, Object> body) {
+        return Result.ok(partsService.createStocktake(body));
+    }
+
+    @GetMapping("/stocktake/{id}")
+    @Perm("resource:part:list")
+    public Result<Map<String, Object>> stocktakeDetail(@PathVariable Long id) {
+        return Result.ok(partsService.stocktakeDetail(id));
+    }
+
+    @PostMapping("/stocktake/{id}/approve")
+    @Perm("resource:requisition:approve")
+    public Result<Void> approveStocktake(@PathVariable Long id,
+                                         @RequestBody(required = false) Map<String, String> body) {
+        partsService.approveStocktake(id, true, body == null ? null : body.get("remark"));
+        return Result.ok();
+    }
+
+    @PostMapping("/stocktake/{id}/reject")
+    @Perm("resource:requisition:approve")
+    public Result<Void> rejectStocktake(@PathVariable Long id,
+                                        @RequestBody(required = false) Map<String, String> body) {
+        partsService.approveStocktake(id, false, body == null ? null : body.get("remark"));
+        return Result.ok();
+    }
+
     private String csv(Object value) {
         String text = value == null ? "" : String.valueOf(value);
         return '"' + text.replace("\"", "\"\"") + '"';

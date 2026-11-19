@@ -460,6 +460,125 @@ public class PartsService {
         return Map.of("records", records, "total", total == null ? 0 : total);
     }
 
+    public Map<String, Object> stocktakePage(int pageNum, int pageSize, String status) {
+        LoginUser user = AuthContext.require();
+        List<Object> args = new ArrayList<>();
+        StringBuilder where = new StringBuilder(" where 1=1 ");
+        if (status != null && !status.isBlank()) { where.append(" and s.status=? "); args.add(status); }
+        Long companyId = dataScope.companyId(user);
+        if (companyId != null) { where.append(" and s.company_id=? "); args.add(companyId); }
+        Long total = jdbc.queryForObject("select count(*) from biz_part_stocktake s" + where, Long.class, args.toArray());
+        args.add(pageSize);
+        args.add(Math.max(0, (pageNum - 1) * pageSize));
+        List<Map<String, Object>> records = jdbc.queryForList(
+                "select s.stocktake_id as `stocktakeId`, s.stocktake_no as `stocktakeNo`, s.warehouse, s.status, " +
+                        "s.applicant_name as `applicantName`, s.approve_by as `approveBy`, " +
+                        "date_format(s.approve_time,'%Y-%m-%d %H:%i') as `approveTime`, " +
+                        "date_format(s.create_time,'%Y-%m-%d %H:%i') as `createTime`, s.reason " +
+                        "from biz_part_stocktake s" + where + " order by s.stocktake_id desc limit ? offset ?", args.toArray());
+        return Map.of("records", records, "total", total == null ? 0 : total);
+    }
+
+    @Transactional
+    public Long createStocktake(Map<String, Object> body) {
+        LoginUser user = AuthContext.require();
+        String warehouse = str(body.get("warehouse")).trim();
+        if (warehouse.isBlank()) throw BizException.badRequest("请选择盘点仓库");
+        List<Map<String, Object>> items;
+        Object itemsObj = body.get("items");
+        if (itemsObj instanceof List<?> list && !list.isEmpty()) {
+            items = new ArrayList<>();
+            for (Object o : list) {
+                if (!(o instanceof Map<?, ?> item)) continue;
+                Long partId = longOf(item.get("partId"));
+                if (partId == null) continue;
+                int actual = item.get("actualQty") == null ? 0 : ((Number) item.get("actualQty")).intValue();
+                Map<String, Object> part = requirePart(partId);
+                checkPartCompany(null, partId);
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("partId", partId);
+                row.put("partName", part.get("part_name"));
+                row.put("bookQty", currentStock(partId, warehouse));
+                row.put("actualQty", Math.max(0, actual));
+                row.put("reason", str(item.get("reason")));
+                items.add(row);
+            }
+        } else {
+            items = jdbc.queryForList(
+                    "select part_id as `partId`, p.part_name as `partName`, on_hand_qty as `bookQty`, " +
+                            "on_hand_qty as `actualQty` from biz_part_stock s join biz_part p on p.part_id=s.part_id " +
+                            "where s.warehouse=?", warehouse);
+        }
+        if (items.isEmpty()) throw BizException.badRequest("盘点明细不能为空");
+        String no = "ST-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                + "-" + UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+        Map<String, Object> firstPart = requirePart(((Number) items.get(0).get("partId")).longValue());
+        Object companyId = firstPart.get("company_id");
+        jdbc.update("insert into biz_part_stocktake(stocktake_no,company_id,warehouse,status,applicant_id," +
+                        "applicant_name,create_time,reason) values(?,?,?, '0',?,?,now(),?)",
+                no, companyId, warehouse, user.getUserId(), user.getNickName(), str(body.get("reason")));
+        Long id = jdbc.queryForObject("select last_insert_id()", Long.class);
+        for (Map<String, Object> item : items) {
+            int book = ((Number) item.get("bookQty")).intValue();
+            int actual = ((Number) item.get("actualQty")).intValue();
+            jdbc.update("insert into biz_part_stocktake_item(stocktake_id,part_id,part_name,book_qty,actual_qty,difference,reason) " +
+                            "values(?,?,?,?,?,?,?)",
+                    id, item.get("partId"), item.get("partName"), book, actual, actual - book, item.get("reason"));
+        }
+        return id;
+    }
+
+    public Map<String, Object> stocktakeDetail(Long id) {
+        Map<String, Object> header = jdbc.queryForMap("select * from biz_part_stocktake where stocktake_id=?", id);
+        List<Map<String, Object>> items = jdbc.queryForList(
+                "select item_id as `itemId`, part_id as `partId`, part_name as `partName`, book_qty as `bookQty`, " +
+                        "actual_qty as `actualQty`, difference, reason from biz_part_stocktake_item where stocktake_id=?", id);
+        return Map.of("stocktake", header, "items", items);
+    }
+
+    @Transactional
+    public void approveStocktake(Long id, boolean pass, String remark) {
+        LoginUser user = AuthContext.require();
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select * from biz_part_stocktake where stocktake_id=? for update", id);
+        if (rows.isEmpty()) throw BizException.badRequest("盘点单不存在");
+        Map<String, Object> st = rows.get(0);
+        Long companyId = st.get("company_id") == null ? null : ((Number) st.get("company_id")).longValue();
+        if (dataScope.companyId(user) != null && !dataScope.companyId(user).equals(companyId)) {
+            throw BizException.forbidden("无权审批其他公司的盘点单");
+        }
+        if (!"0".equals(String.valueOf(st.get("status")))) throw BizException.badRequest("盘点单已处理");
+        int changed = jdbc.update("update biz_part_stocktake set status=?, approve_by=?, approve_time=now(), " +
+                        "reason=concat(coalesce(reason,''), ?) where stocktake_id=? and status='0'",
+                pass ? "1" : "2", user.getNickName(), remark == null || remark.isBlank() ? "" : "；审批意见：" + remark, id);
+        if (changed != 1) throw BizException.badRequest("盘点单状态已变化");
+        if (!pass) return;
+
+        String warehouse = str(st.get("warehouse"));
+        List<Map<String, Object>> items = jdbc.queryForList(
+                "select part_id, part_name, actual_qty, reason from biz_part_stocktake_item where stocktake_id=?", id);
+        for (Map<String, Object> item : items) {
+            Long partId = ((Number) item.get("part_id")).longValue();
+            int actual = ((Number) item.get("actual_qty")).intValue();
+            if (actual < 0) throw BizException.badRequest("盘点数量不能为负数");
+            BizStock before = lockStock(partId, warehouse);
+            int diff = actual - before.onHand;
+            if (diff == 0) continue;
+            jdbc.update("update biz_part_stock set on_hand_qty=?, version=version+1, update_time=now() " +
+                    "where part_id=? and warehouse=?", actual, partId, warehouse);
+            syncCurrentStock(partId, warehouse);
+            writeTxn(companyId, partId, warehouse, diff > 0 ? "STOCKTAKE_GAIN" : "STOCKTAKE_LOSS",
+                    diff, before.onHand, actual, before.reserved, before.reserved,
+                    "STOCKTAKE", id, "stocktake-" + id + "-" + partId, "盘点单 " + st.get("stocktake_no"));
+        }
+    }
+
+    private int currentStock(Long partId, String warehouse) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select on_hand_qty from biz_part_stock where part_id=? and warehouse=?", partId, warehouse);
+        return rows.isEmpty() ? 0 : ((Number) rows.get(0).get("on_hand_qty")).intValue();
+    }
+
     public List<Map<String, Object>> lowStock() {
         LoginUser user = AuthContext.require();
         Long companyId = dataScope.companyId(user);
