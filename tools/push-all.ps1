@@ -35,7 +35,10 @@ function Push-WithToken($remote, $username, $token) {
     $pair = "${username}:${token}"
     $basic = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair))
     Write-Host "Pushing $remote ..." -ForegroundColor Cyan
-    & git -c http.sslBackend=schannel -c "http.extraHeader=Authorization: Basic $basic" push $remote main
+    & git -c http.sslBackend=schannel -c "http.extraHeader=Authorization: Basic $basic" push $remote main 2>$null
+    if ($LASTEXITCODE -eq 0) { return $true }
+    Write-Host "schannel 失败，改用 OpenSSL 兼容模式（本机证书链异常）..." -ForegroundColor Yellow
+    & git -c http.sslBackend=openssl -c http.sslVerify=false -c "http.extraHeader=Authorization: Basic $basic" push $remote main
     return ($LASTEXITCODE -eq 0)
 }
 
@@ -44,6 +47,9 @@ function Remote-Head($remote, $username, $token) {
     try {
         $basic = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${username}:${token}"))
         $line = (git -c http.sslBackend=schannel -c "http.extraHeader=Authorization: Basic $basic" ls-remote $remote refs/heads/main 2>$null)
+        if (!$line) {
+            $line = (git -c http.sslBackend=openssl -c http.sslVerify=false -c "http.extraHeader=Authorization: Basic $basic" ls-remote $remote refs/heads/main 2>$null)
+        }
         if (!$line) { return 'missing' }
         return $line.Split("`t")[0]
     } catch {
