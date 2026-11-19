@@ -47,7 +47,8 @@
         <h3>调整审批记录</h3>
         <el-radio-group v-model="status" size="small" @change="loadAdjustments">
           <el-radio-button label="">全部</el-radio-button>
-          <el-radio-button label="0">待审批</el-radio-button>
+          <el-radio-button label="0">待初审</el-radio-button>
+          <el-radio-button label="3">待复核</el-radio-button>
           <el-radio-button label="1">已通过</el-radio-button>
           <el-radio-button label="2">已驳回</el-radio-button>
         </el-radio-group>
@@ -62,24 +63,42 @@
         <el-table-column prop="reason" label="原因" min-width="180" show-overflow-tooltip />
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.status === '0' ? 'warning' : row.status === '1' ? 'success' : 'danger'">
-              {{ row.status === '0' ? '待审批' : row.status === '1' ? '已通过' : '已驳回' }}
+            <el-tag size="small" :type="row.status === '0' || row.status === '3' ? 'warning' : row.status === '1' ? 'success' : 'danger'">
+              {{ row.status === '0' ? '待初审' : row.status === '3' ? '待复核' : row.status === '1' ? '已通过' : '已驳回' }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="applicantName" label="申请人" width="100" />
+        <el-table-column prop="approveBy" label="初审人" width="100" />
+        <el-table-column prop="reviewBy" label="复核人" width="100" />
         <el-table-column prop="createTime" label="申请时间" width="150" />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <template v-if="row.status === '0' && canApprove">
-              <el-button link type="success" @click="approve(row, true)">通过</el-button>
+              <el-button link type="success" @click="approve(row, true)">初审通过</el-button>
               <el-button link type="danger" @click="approve(row, false)">驳回</el-button>
             </template>
-            <span v-else class="muted">{{ row.approveBy || '—' }}</span>
+            <template v-else-if="row.status === '3' && canApprove">
+              <el-button link type="success" @click="review(row, true)">复核通过</el-button>
+              <el-button link type="danger" @click="review(row, false)">复核驳回</el-button>
+            </template>
+            <span v-else class="muted">{{ row.reviewBy || row.approveBy || '—' }}</span>
           </template>
         </el-table-column>
       </el-table>
       <div v-if="!adjustments.length" class="empty">暂无调整单</div>
+    </div>
+
+    <div class="txn-card">
+      <div class="txn-head"><h3>安全库存提醒</h3><span>库存 ≤ 安全库存的备件</span></div>
+      <el-table :data="lowStock" size="small">
+        <el-table-column prop="partCode" label="备件编码" width="140" />
+        <el-table-column prop="partName" label="备件" min-width="160" />
+        <el-table-column prop="currentStock" label="当前库存" width="100" />
+        <el-table-column prop="safetyStock" label="安全库存" width="100" />
+        <el-table-column prop="suggestQty" label="建议补货" width="110" />
+      </el-table>
+      <div v-if="!lowStock.length" class="empty">暂无低库存备件</div>
     </div>
 
     <div class="txn-card">
@@ -118,6 +137,7 @@ const saving = ref(false)
 const status = ref('')
 const adjustments = ref([])
 const transactions = ref([])
+const lowStock = ref([])
 const form = reactive({ partId: undefined, type: 'in', quantity: 1, reasonType: 'purchase', reason: '' })
 
 async function loadParts() {
@@ -134,6 +154,11 @@ async function loadTxn() {
   if (!form.partId) return
   const res = await request.get(`/parts/${form.partId}/transactions`, { params: { limit: 20 } })
   transactions.value = res.data || []
+}
+
+async function loadLowStock() {
+  const res = await request.get('/parts/low-stock')
+  lowStock.value = res.data || []
 }
 
 async function submit() {
@@ -154,9 +179,16 @@ async function submit() {
 }
 
 async function approve(row, pass) {
-  await ElMessageBox.confirm(`确认${pass ? '通过' : '驳回'}调整单「${row.adjustmentNo}」？`, '提示', { type: 'warning' })
+  await ElMessageBox.confirm(`确认${pass ? '初审通过' : '驳回'}调整单「${row.adjustmentNo}」？`, '提示', { type: 'warning' })
   await request.post(`/parts/adjustment/${row.adjustmentId}/${pass ? 'approve' : 'reject'}`, {})
-  ElMessage.success('审批完成')
+  ElMessage.success('初审完成')
+  await loadAdjustments()
+}
+
+async function review(row, pass) {
+  await ElMessageBox.confirm(`确认${pass ? '复核通过并执行库存变更' : '复核驳回'}？`, '提示', { type: 'warning' })
+  await request.post(`/parts/adjustment/${row.adjustmentId}/review`, { pass })
+  ElMessage.success(pass ? '复核通过，库存已变更' : '复核已驳回')
   await loadAdjustments()
   await loadTxn()
 }
@@ -164,6 +196,7 @@ async function approve(row, pass) {
 onMounted(async () => {
   await loadParts()
   await loadAdjustments()
+  await loadLowStock()
 })
 </script>
 

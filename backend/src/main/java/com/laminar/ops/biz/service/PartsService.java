@@ -244,6 +244,7 @@ public class PartsService {
                         "p.part_name as `partName`, a.warehouse, a.adjust_type as `adjustType`, a.quantity, " +
                         "a.reason_type as `reasonType`, a.reason, a.status, a.applicant_name as `applicantName`, " +
                         "a.approve_by as `approveBy`, date_format(a.approve_time,'%Y-%m-%d %H:%i') as `approveTime`, " +
+                        "a.review_by as `reviewBy`, date_format(a.review_time,'%Y-%m-%d %H:%i') as `reviewTime`, " +
                         "a.before_on_hand as `beforeOnHand`, a.after_on_hand as `afterOnHand`, " +
                         "date_format(a.create_time,'%Y-%m-%d %H:%i') as `createTime` " +
                         "from biz_part_adjustment a left join biz_part p on p.part_id=a.part_id" +
@@ -284,10 +285,36 @@ public class PartsService {
         if (dataScope.companyId(user) != null && !dataScope.companyId(user).equals(companyId)) {
             throw BizException.forbidden("无权审批其他公司的库存调整");
         }
-        if (!"0".equals(String.valueOf(adj.get("status")))) throw BizException.badRequest("调整单已处理");
+        if (!"0".equals(String.valueOf(adj.get("status")))) throw BizException.badRequest("调整单不在待审批状态");
+        if (String.valueOf(adj.get("applicant_id")).equals(String.valueOf(user.getUserId()))) {
+            throw BizException.forbidden("申请人不能审批自己的调整单");
+        }
         int changed = jdbc.update("update biz_part_adjustment set status=?, approve_by=?, approve_time=now(), " +
                         "reason=concat(reason, coalesce(?, '')) where adjustment_id=? and status='0'",
-                pass ? "1" : "2", user.getNickName(), remark == null || remark.isBlank() ? "" : "；审批意见：" + remark, id);
+                pass ? "3" : "2", user.getNickName(), remark == null || remark.isBlank() ? "" : "；初审意见：" + remark, id);
+        if (changed != 1) throw BizException.badRequest("调整单状态已变化");
+    }
+
+    /** 第二人复核：只有初审通过（status=3）的调整单才能执行库存变更。 */
+    @Transactional
+    public void reviewAdjustment(Long id, boolean pass, String remark) {
+        LoginUser user = AuthContext.require();
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select * from biz_part_adjustment where adjustment_id=? for update", id);
+        if (rows.isEmpty()) throw BizException.badRequest("库存调整单不存在");
+        Map<String, Object> adj = rows.get(0);
+        Long companyId = adj.get("company_id") == null ? null : ((Number) adj.get("company_id")).longValue();
+        if (dataScope.companyId(user) != null && !dataScope.companyId(user).equals(companyId)) {
+            throw BizException.forbidden("无权复核其他公司的库存调整");
+        }
+        if (!"3".equals(String.valueOf(adj.get("status")))) throw BizException.badRequest("调整单不在待复核状态");
+        if (String.valueOf(adj.get("approve_by")).equals(user.getNickName())
+                || String.valueOf(adj.get("applicant_id")).equals(String.valueOf(user.getUserId()))) {
+            throw BizException.forbidden("复核人不能是申请人和初审人");
+        }
+        int changed = jdbc.update("update biz_part_adjustment set status=?, review_by=?, review_time=now(), " +
+                        "reason=concat(reason, coalesce(?, '')) where adjustment_id=? and status='3'",
+                pass ? "1" : "2", user.getNickName(), remark == null || remark.isBlank() ? "" : "；复核意见：" + remark, id);
         if (changed != 1) throw BizException.badRequest("调整单状态已变化");
         if (!pass) return;
 
@@ -295,7 +322,6 @@ public class PartsService {
         String warehouse = str(adj.get("warehouse"));
         String type = str(adj.get("adjust_type"));
         int qty = ((Number) adj.get("quantity")).intValue();
-        Map<String, Object> part = requirePart(partId);
         BizStock before = lockStock(partId, warehouse);
         int delta = "in".equals(type) ? qty : -qty;
         if (before.onHand + delta < 0) throw BizException.badRequest("库存不足，无法出库");
@@ -304,7 +330,7 @@ public class PartsService {
         syncCurrentStock(partId, warehouse);
         writeTxn(companyId, partId, warehouse, "in".equals(type) ? "ADJUST_IN" : "ADJUST_OUT", delta,
                 before.onHand, before.onHand + delta, before.reserved, before.reserved,
-                "ADJUSTMENT", id, "adjust-" + id, "库存调整单 " + adj.get("adjustment_no"));
+                "ADJUSTMENT", id, "adjust-" + id, "库存调整单 " + adj.get("adjustment_no") + "（复核通过）");
         jdbc.update("update biz_part_adjustment set before_on_hand=?, after_on_hand=? where adjustment_id=?",
                 before.onHand, before.onHand + delta, id);
     }
@@ -366,6 +392,69 @@ public class PartsService {
                     "备件 " + row.get("part_name") + " 账面 " + book + "，库存汇总 " + sum + "，差异 " + (book - sum));
         }
         return rows.size();
+    }
+
+    public Map<String, Object> reconcilePage(int pageNum, int pageSize, String resolved) {
+        LoginUser user = AuthContext.require();
+        List<Object> args = new ArrayList<>();
+        StringBuilder where = new StringBuilder(" where 1=1 ");
+        if ("0".equals(resolved) || "1".equals(resolved)) {
+            where.append(" and r.resolved=? ");
+            args.add(resolved);
+        }
+        Long companyId = dataScope.companyId(user);
+        if (companyId != null) { where.append(" and r.company_id=? "); args.add(companyId); }
+        Long total = jdbc.queryForObject("select count(*) from biz_part_reconcile_log r" + where, Long.class, args.toArray());
+        args.add(pageSize);
+        args.add(Math.max(0, (pageNum - 1) * pageSize));
+        List<Map<String, Object>> records = jdbc.queryForList(
+                "select r.id, r.part_id as `partId`, r.part_name as `partName`, r.warehouse, r.book_stock as `bookStock`, " +
+                        "r.stock_sum as `stockSum`, r.difference, r.resolved, r.resolved_by as `resolvedBy`, " +
+                        "r.resolve_note as `resolveNote`, date_format(r.checked_at,'%Y-%m-%d %H:%i:%s') as `checkedAt` " +
+                        "from biz_part_reconcile_log r" + where + " order by r.id desc limit ? offset ?", args.toArray());
+        return Map.of("records", records, "total", total == null ? 0 : total);
+    }
+
+    @Transactional
+    public void resolveReconcile(Long id, String note) {
+        if (note == null || note.isBlank()) throw BizException.badRequest("请填写核销说明");
+        LoginUser user = AuthContext.require();
+        int changed = jdbc.update("update biz_part_reconcile_log set resolved='1', resolved_by=?, resolve_note=?, " +
+                        "resolved_at=now() where id=? and resolved='0'",
+                user.getNickName(), note, id);
+        if (changed != 1) throw BizException.badRequest("对账异常不存在或已核销");
+    }
+
+    public Map<String, Object> returnPage(int pageNum, int pageSize) {
+        LoginUser user = AuthContext.require();
+        List<Object> args = new ArrayList<>();
+        StringBuilder where = new StringBuilder(" where 1=1 ");
+        Long companyId = dataScope.companyId(user);
+        if (companyId != null) { where.append(" and r.company_id=? "); args.add(companyId); }
+        Long total = jdbc.queryForObject("select count(*) from biz_part_return r" + where, Long.class, args.toArray());
+        args.add(pageSize);
+        args.add(Math.max(0, (pageNum - 1) * pageSize));
+        List<Map<String, Object>> records = jdbc.queryForList(
+                "select r.return_id as `returnId`, r.return_no as `returnNo`, r.req_id as `reqId`, " +
+                        "q.req_no as `reqNo`, r.part_id as `partId`, p.part_name as `partName`, r.quantity, " +
+                        "r.reason, r.operator_name as `operatorName`, date_format(r.create_time,'%Y-%m-%d %H:%i:%s') as `createTime` " +
+                        "from biz_part_return r left join biz_part_requisition q on q.req_id=r.req_id " +
+                        "left join biz_part p on p.part_id=r.part_id" + where +
+                        " order by r.return_id desc limit ? offset ?", args.toArray());
+        return Map.of("records", records, "total", total == null ? 0 : total);
+    }
+
+    public List<Map<String, Object>> lowStock() {
+        LoginUser user = AuthContext.require();
+        Long companyId = dataScope.companyId(user);
+        String sql = "select part_id as `partId`, part_name as `partName`, part_code as `partCode`, " +
+                "safety_stock as `safetyStock`, current_stock as `currentStock`, " +
+                "(safety_stock - current_stock) as `suggestQty` from biz_part " +
+                "where status='0' and current_stock <= safety_stock ";
+        if (companyId != null) {
+            return jdbc.queryForList(sql + "and company_id=? order by (safety_stock-current_stock) desc", companyId);
+        }
+        return jdbc.queryForList(sql + "order by (safety_stock-current_stock) desc");
     }
 
     public List<Map<String, Object>> transactions(Long partId, int limit) {

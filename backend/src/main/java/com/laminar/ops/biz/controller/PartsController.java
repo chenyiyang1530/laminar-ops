@@ -4,6 +4,9 @@ import com.laminar.ops.biz.service.PartsService;
 import com.laminar.ops.common.Result;
 import com.laminar.ops.security.Perm;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -12,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -92,6 +96,15 @@ public class PartsController {
         return Result.ok();
     }
 
+    @PostMapping("/adjustment/{id}/review")
+    @Perm("resource:requisition:approve")
+    public Result<Void> reviewAdjustment(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+        Object pass = body.get("pass");
+        boolean approved = pass == null || Boolean.parseBoolean(String.valueOf(pass));
+        partsService.reviewAdjustment(id, approved, (String) body.get("remark"));
+        return Result.ok();
+    }
+
     @PostMapping("/requisition/{id}/return")
     @Perm("resource:requisition:out")
     public Result<Void> returnItem(@PathVariable Long id, @RequestBody Map<String, Object> body) {
@@ -104,6 +117,61 @@ public class PartsController {
     @Perm("resource:part:stock")
     public Result<Integer> reconcile() {
         return Result.ok(partsService.reconcile());
+    }
+
+    @GetMapping("/reconcile/page")
+    @Perm("resource:part:list")
+    public Result<Map<String, Object>> reconcilePage(@RequestParam(defaultValue = "1") int pageNum,
+                                                     @RequestParam(defaultValue = "10") int pageSize,
+                                                     @RequestParam(required = false) String resolved) {
+        return Result.ok(partsService.reconcilePage(pageNum, pageSize, resolved));
+    }
+
+    @PostMapping("/reconcile/{id}/resolve")
+    @Perm("resource:requisition:approve")
+    public Result<Void> resolveReconcile(@PathVariable Long id, @RequestBody Map<String, String> body) {
+        partsService.resolveReconcile(id, body == null ? null : body.get("note"));
+        return Result.ok();
+    }
+
+    @GetMapping("/returns/page")
+    @Perm("resource:part:list")
+    public Result<Map<String, Object>> returnPage(@RequestParam(defaultValue = "1") int pageNum,
+                                                   @RequestParam(defaultValue = "10") int pageSize) {
+        return Result.ok(partsService.returnPage(pageNum, pageSize));
+    }
+
+    @GetMapping("/returns/export")
+    @Perm("resource:part:export")
+    public ResponseEntity<String> exportReturns() {
+        Map<String, Object> page = partsService.returnPage(1, 10000);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) page.get("records");
+        StringBuilder csv = new StringBuilder("\uFEFF退料单号,领用单号,备件,数量,原因,操作人,时间\n");
+        for (Map<String, Object> row : rows) {
+            csv.append(csv(row.get("returnNo"))).append(',')
+                    .append(csv(row.get("reqNo"))).append(',')
+                    .append(csv(row.get("partName"))).append(',')
+                    .append(row.get("quantity")).append(',')
+                    .append(csv(row.get("reason"))).append(',')
+                    .append(csv(row.get("operatorName"))).append(',')
+                    .append(csv(row.get("createTime"))).append('\n');
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=part-returns.csv")
+                .contentType(MediaType.parseMediaType("text/csv;charset=UTF-8"))
+                .body(csv.toString());
+    }
+
+    @GetMapping("/low-stock")
+    @Perm("resource:part:list")
+    public Result<List<Map<String, Object>>> lowStock() {
+        return Result.ok(partsService.lowStock());
+    }
+
+    private String csv(Object value) {
+        String text = value == null ? "" : String.valueOf(value);
+        return '"' + text.replace("\"", "\"\"") + '"';
     }
 
     @GetMapping("/{partId}/transactions")

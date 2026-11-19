@@ -385,14 +385,18 @@ public final class CrudRegistry {
                 .field(FieldDef.of("companyName", "company_name", "公司名称").virtual().form(false).width(180))
                 .field(FieldDef.of("partId", "part_id", "备件").type("select").options("part").query("eq").required().width(180))
                 .field(FieldDef.of("partName", "part_name", "备件名称").virtual().form(false).width(150))
-                .field(FieldDef.of("equipmentId", "equipment_id", "设备").type("select").options("equipment").query("eq").required().width(180))
+                .field(FieldDef.of("equipmentId", "equipment_id", "具体设备").type("select").options("equipment").query("eq").width(180))
                 .field(FieldDef.of("equipmentName", "equipment_name", "设备名称").virtual().form(false).width(150))
+                .field(FieldDef.of("deviceTypeId", "device_type_id", "设备类型").type("select").options("deviceType").query("eq").width(150))
+                .field(FieldDef.of("deviceTypeName", "device_type_name", "设备类型名称").virtual().form(false).width(150))
+                .field(FieldDef.of("deviceModel", "device_model", "设备型号").query("like").width(150))
                 .field(FieldDef.of("relationType", "relation_type", "关系").query("eq").width(110))
                 .field(FieldDef.of("remark", "remark", "备注").type("textarea").list(false).span(24))
-                .join("cp.company_name as `companyName`, p.part_name as `partName`, eq.equipment_name as `equipmentName`",
+                .join("cp.company_name as `companyName`, p.part_name as `partName`, eq.equipment_name as `equipmentName`, dt.type_name as `deviceTypeName`",
                         "left join biz_company cp on cp.company_id=e.company_id " +
                                 "left join biz_part p on p.part_id=e.part_id " +
-                                "left join biz_equipment eq on eq.equipment_id=e.equipment_id"));
+                                "left join biz_equipment eq on eq.equipment_id=e.equipment_id " +
+                                "left join biz_device_type dt on dt.type_id=e.device_type_id"));
 
         register(ResourceDef.of("document", "biz_document", "doc_id", "图纸文档", "resource:document", "doc_name")                .noAudit()
                 .noHospitalScope()
