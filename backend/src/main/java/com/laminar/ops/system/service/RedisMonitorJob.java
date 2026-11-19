@@ -91,9 +91,10 @@ public class RedisMonitorJob {
         try {
             long count = redisHealth.slowLogCount();
             if (count >= slowLogWarningCount && count > 0) {
+                String latest = redisHealth.slowLogSummary();
                 systemAlertService.error("redis-slowlog", "Redis 慢查询告警",
-                        String.format("Redis SLOWLOG 当前有 %d 条慢查询，阈值 %d 条；请检查大 key、复杂命令和网络延迟",
-                                count, slowLogWarningCount));
+                        String.format("Redis SLOWLOG 当前有 %d 条慢查询，阈值 %d 条；最近一条：%s；请检查大 key、复杂命令和网络延迟",
+                                count, slowLogWarningCount, latest));
             }
         } catch (Exception e) {
             log.debug("Redis 慢查询巡检不可用: {}", e.getMessage());

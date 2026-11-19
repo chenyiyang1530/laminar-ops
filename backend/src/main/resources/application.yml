@@ -100,6 +100,9 @@ laminar:
       qos: ${MQTT_QOS:1}
   app:
     version: 1.6.0
+  autostart:
+    task-name: ${AUTOSTART_TASK_NAME:LaminarOpsBackend}
+    log-dir: ${AUTOSTART_LOG_DIR:D:/ideaWork/laminar-ops/logs}
   backup:
     enabled: ${BACKUP_ENABLED:true}
     script: ${BACKUP_SCRIPT:D:/ideaWork/laminar-ops/tools/backup.ps1}

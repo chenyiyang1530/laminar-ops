@@ -1,0 +1,32 @@
+groups:
+  - name: laminar-redis8
+    rules:
+      - alert: Redis8ApplicationHealthDown
+        expr: laminar_redis_health == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: redis8
+        annotations:
+          summary: "Redis8 应用健康检查失败"
+          description: "Laminar Ops 的 redisLaminar 健康指标为 0，Redis8 可能不可用或 PING 失败。"
+
+      - alert: Redis8SlowLogDetected
+        expr: laminar_redis_slowlog_count > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: redis8
+        annotations:
+          summary: "Redis8 存在慢查询"
+          description: "SLOWLOG 当前有 {{ $value }} 条记录，请检查大 key、复杂命令和网络延迟。"
+
+      - alert: Redis8HealthMetricMissing
+        expr: absent(laminar_redis_health)
+        for: 5m
+        labels:
+          severity: warning
+          service: redis8
+        annotations:
+          summary: "Redis8 健康指标缺失"
+          description: "Prometheus 已经 5 分钟没有采集到 laminar_redis_health，请检查应用或 Prometheus 抓取配置。"

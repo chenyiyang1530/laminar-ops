@@ -4,6 +4,7 @@ import com.laminar.ops.common.Result;
 import com.laminar.ops.common.BizException;
 import com.laminar.ops.security.AuthContext;
 import com.laminar.ops.security.Perm;
+import com.laminar.ops.system.service.AppTaskMonitorService;
 import com.laminar.ops.system.service.RedisLaminarHealthIndicator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.Cursor;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.lang.management.ManagementFactory;
@@ -35,6 +37,7 @@ public class MonitorManageController {
     private final StringRedisTemplate redis;
     private final JdbcTemplate jdbc;
     private final RedisLaminarHealthIndicator redisHealth;
+    private final AppTaskMonitorService appTaskMonitorService;
 
     @GetMapping("/online")
     @Perm("monitor:server:view")
@@ -128,7 +131,21 @@ public class MonitorManageController {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("status", health.getStatus().getCode());
         map.put("details", health.getDetails());
+        map.put("slowLogSummary", redisHealth.slowLogSummary());
         return Result.ok(map);
+    }
+
+    @GetMapping("/app-task")
+    @Perm("monitor:server:view")
+    public Result<Map<String, Object>> appTask() {
+        return Result.ok(appTaskMonitorService.status());
+    }
+
+    @GetMapping("/app-task/log")
+    @Perm("monitor:server:view")
+    public Result<Map<String, Object>> appTaskLog(@RequestParam(defaultValue = "log") String type,
+                                                  @RequestParam(defaultValue = "200") int lines) {
+        return Result.ok(appTaskMonitorService.log(type, lines));
     }
 
     @GetMapping("/data")
