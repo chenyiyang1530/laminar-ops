@@ -41,8 +41,9 @@ if (Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyCont
 }
 
 if (-not (Get-NetTCPConnection -LocalPort 6380 -State Listen -ErrorAction SilentlyContinue)) {
-  Write-Host "Redis8 未运行，请先启动 Redis8（6380）" -ForegroundColor Yellow
-  exit 1
+  Write-Host "Redis8 未运行，正在自动启动..." -ForegroundColor Yellow
+  & (Join-Path $root 'tools\ensure-redis.ps1') -Port 6380
+  if ($LASTEXITCODE -ne 0) { throw "Redis8 启动失败" }
 }
 
 $java = if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME "bin\java.exe" } else { "java" }

@@ -51,11 +51,10 @@ if (-not (Test-TcpPort 3306)) {
     Write-Host '[ERROR] MySQL 127.0.0.1:3306 is not reachable. Please start MySQL first.' -ForegroundColor Red
     exit 1
 }
-if (-not (Test-TcpPort 6379)) {
-    Write-Host '[ERROR] Redis 127.0.0.1:6379 is not reachable. Please start Redis first.' -ForegroundColor Red
-    exit 1
-}
-Write-Host '[OK] MySQL 3306 / Redis 6379 are reachable.' -ForegroundColor Green
+$redisPort = if ($env:REDIS_PORT) { [int]$env:REDIS_PORT } else { 6380 }
+& (Join-Path $root 'tools\ensure-redis.ps1') -Port $redisPort
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Write-Host '[OK] MySQL 3306 / Redis are reachable.' -ForegroundColor Green
 
 if (-not $SkipFrontend -and -not (Test-Path (Join-Path $web 'dist\index.html'))) {
     Write-Host '[INFO] Frontend dist not found, building...' -ForegroundColor Yellow

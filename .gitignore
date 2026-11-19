@@ -23,6 +23,7 @@ certs/
 *.jks
 
 .secrets.local
+logs/
 backend/certs/
 
 web-admin/playwright-report/
