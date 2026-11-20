@@ -111,7 +111,7 @@
           <el-col v-if="accountType === 'engineer'" :span="12"><el-form-item label="绑定工程师"><el-select v-model="form.engineerId" clearable filterable :disabled="!canBindEngineer" style="width: 100%" :placeholder="canBindEngineer ? '选择工程师档案' : '请先选择维保部或下级部门'" @change="onEngineerChange"><el-option v-for="e in engineers" :key="e.value" :label="e.label" :value="e.value" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="手机号（登录用）" prop="phone"><el-input v-model="form.phone" maxlength="11" inputmode="numeric" placeholder="11位手机号" @input="onPhoneInput" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="邮箱（登录用）" prop="email"><el-input v-model="form.email" maxlength="100" placeholder="name@example.com" /></el-form-item></el-col>
-          <el-col v-if="!isHospitalType" :span="12"><el-form-item label="角色"><el-select v-model="form.roleIds" multiple style="width: 100%" @change="onRoleChange"><el-option v-for="r in roles" :key="r.roleId" :label="r.roleName" :value="r.roleId" /></el-select></el-form-item></el-col>
+          <el-col v-if="!isHospitalType" :span="12"><el-form-item label="角色"><el-select v-model="form.roleIds" multiple :disabled="isSelf" style="width: 100%" @change="onRoleChange"><el-option v-for="r in roles" :key="r.roleId" :label="r.roleName" :value="r.roleId" /></el-select><div v-if="isSelf" class="hint">不能修改自己的角色，请由上级管理员操作</div></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="状态"><el-radio-group v-model="form.status"><el-radio value="0">正常</el-radio><el-radio value="1">停用</el-radio></el-radio-group></el-form-item></el-col>
         </el-row>
         <el-alert v-if="!form.userId" type="info" :closable="false" title="新增员工使用系统参数中的账号初始密码，首次登录需修改" />
@@ -129,6 +129,7 @@ import request from '@/utils/request'
 import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
+const isSelf = computed(() => !!form.userId && String(form.userId) === String(store.user?.userId || ''))
 const has = (a) => store.hasPerm('system:user:' + a)
 const records = ref([])
 const total = ref(0)
@@ -334,7 +335,15 @@ function onPhoneInput(value) {
 
 async function openEdit(row) {
   const res = await request.get('/system/user/' + row.userId)
-  reset({ ...res.data })
+  const detail = res.data
+  const roleIds = detail.roleIds || []
+  const roleNames = detail.roleNames || []
+  roleIds.forEach((id, i) => {
+    if (!roles.value.some((r) => String(r.roleId) === String(id))) {
+      roles.value.push({ roleId: id, roleName: roleNames[i] || ('角色' + id) })
+    }
+  })
+  reset({ ...detail })
   if (form.hospitalId) {
     const roleNames = (form.roleIds || []).map((id) => roles.value.find((r) => String(r.roleId) === String(id))?.roleName || '')
     accountType.value = roleNames.includes('院方子管理员') ? 'hospital_sub_admin'

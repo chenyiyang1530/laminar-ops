@@ -206,6 +206,9 @@ public class SystemService {
             }
         }
         user.put("roleIds", jdbc.queryForList("select role_id from sys_user_role where user_id=?", Long.class, id));
+        user.put("roleNames", jdbc.queryForList(
+                "select r.role_name from sys_user_role ur join sys_role r on r.role_id=ur.role_id " +
+                        "where ur.user_id=? order by r.role_id", String.class, id));
         List<Long> hospitalIds = jdbc.queryForList(
                 "select hospital_id from biz_hospital_user where user_id=?", Long.class, id);
         user.put("hospitalId", hospitalIds.isEmpty() ? null : hospitalIds.get(0));
