@@ -23,7 +23,7 @@
               :label="`${e.equipmentCode || ''} · ${e.equipmentName || ''} · ${e.hospitalName || '未关联医院'} · ${e.equipmentStatus === '0' ? '正常' : '停用'}`"
               :value="e.value" />
           </el-select>
-          <div v-if="!equipmentOptions.length" class="empty-hint">本公司暂无正常设备，请先到设备台账新增</div>
+          <div v-if="!equipmentOptions.length" class="empty-hint">{{ emptyHint }}</div>
         </el-form-item>
       </el-form>
     </el-card>
@@ -110,8 +110,23 @@
       </el-card>
 
       <el-card shadow="never" class="card">
-        <template #header><b>控制命令记录</b></template>
-        <el-table :data="status.history || []" size="small">
+        <template #header>
+          <div class="card-head">
+            <b>控制命令记录</b>
+            <div class="history-filters">
+              <el-select v-model="historyAction" size="small" placeholder="动作" style="width: 90px" clearable>
+                <el-option label="启动" value="START" /><el-option label="停止" value="STOP" />
+              </el-select>
+              <el-select v-model="historyStatus" size="small" placeholder="状态" style="width: 130px" clearable>
+                <el-option label="待复核" value="PENDING_REVIEW" /><el-option label="成功" value="SUCCESS" />
+                <el-option label="超时" value="TIMEOUT" /><el-option label="失败" value="FAILED" />
+                <el-option label="驳回" value="REJECTED" /><el-option label="已撤销" value="EXPIRED" />
+              </el-select>
+              <el-input v-model="historyOperator" size="small" placeholder="操作人" style="width: 120px" clearable />
+            </div>
+          </div>
+        </template>
+        <el-table :data="filteredHistory" size="small">
           <el-table-column prop="createTime" label="时间" width="170" />
           <el-table-column prop="action" label="动作" width="80" />
           <el-table-column prop="status" label="结果" width="120" />
@@ -208,6 +223,7 @@ const canApprove = store.hasPerm('device:control:approve')
 const canScope = store.hasPerm('device:control:scope')
 
 const equipmentOptions = ref([])
+const equipmentContext = ref({})
 const equipmentId = ref(null)
 const status = ref({ configured: false })
 const config = computed(() => status.value.config || {})
@@ -225,6 +241,14 @@ const reviewDialog = ref(false)
 const reviewRow = ref(null)
 const reviewRemark = ref('')
 const reviewConfirmText = ref('')
+const historyAction = ref('')
+const historyStatus = ref('')
+const historyOperator = ref('')
+const filteredHistory = computed(() => (status.value.history || []).filter((row) =>
+  (!historyAction.value || row.action === historyAction.value) &&
+  (!historyStatus.value || row.status === historyStatus.value) &&
+  (!historyOperator.value || String(row.operatorName || '').includes(historyOperator.value))
+))
 const form = reactive({
   equipmentId: null, brand: 'SIEMENS_LOGO', protocol: 'SIMULATOR', enabled: true, host: '', port: 502, unitId: 1,
   area: 'HOLDING', startAddress: 0, stopAddress: 1, runStatusAddress: 2, localRemoteAddress: 3,
@@ -233,9 +257,19 @@ const form = reactive({
 const runText = computed(() => status.value.values?.runStatus === 1 ? '运行' : status.value.values?.runStatus === 0 ? '停止' : '—')
 const localText = computed(() => status.value.values?.localRemote === 1 ? '远程' : status.value.values?.localRemote === 0 ? '就地' : '—')
 const interlockText = computed(() => status.value.values?.interlockOk === 1 ? '满足' : status.value.values?.interlockOk === 0 ? '不满足' : '—')
+const emptyHint = computed(() => {
+  if (equipmentContext.value.reason === 'NO_SCOPE') return '公司管理员尚未为您配置可控制设备范围，请联系公司管理员在远程控制页配置'
+  if (equipmentContext.value.reason === 'NO_EQUIPMENT') return '本公司暂无正常设备，请先到设备台账新增'
+  return '暂无可用设备'
+})
 
 async function loadEquipment() {
-  equipmentOptions.value = (await request.get('/control/equipment/options')).data || []
+  const [list, ctx] = await Promise.all([
+    request.get('/control/equipment/options'),
+    request.get('/control/equipment/context')
+  ])
+  equipmentOptions.value = list.data || []
+  equipmentContext.value = ctx.data || {}
 }
 
 async function loadScopeUsers() {
@@ -361,5 +395,6 @@ onMounted(async () => {
 .hint { color: #6b7280; font-size: 12px; }
 .empty-hint { width: 100%; margin-top: 6px; color: #b45309; font-size: 12px; }
 .review-block { margin-top: 12px; }
+.history-filters { display: flex; gap: 6px; }
 .snapshot { margin: 6px 0; padding: 10px; max-height: 170px; overflow: auto; background: #0f172a; color: #dbeafe; border-radius: 8px; font-size: 12px; white-space: pre-wrap; }
 </style>

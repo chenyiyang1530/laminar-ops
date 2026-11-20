@@ -40,8 +40,27 @@ public class DeviceControlService {
             "S7_GATEWAY", new S7GatewayDriver()
     );
 
-    public List<Map<String, Object>> equipmentOptions() {
+    public Map<String, Object> equipmentContext() {
         LoginUser user = AuthContext.require();
+        Long companyId = user.getCompanyId();
+        int total = jdbc.queryForObject(
+                "select count(*) from biz_equipment where status='0'" + (companyId == null ? "" : " and company_id=?"),
+                Integer.class, companyId == null ? new Object[0] : new Object[]{companyId});
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("total", total);
+        boolean scoped = isScopedSubAdmin(user);
+        result.put("scoped", scoped);
+        if (scoped) {
+            result.put("allowed", scopeIds(user.getUserId()).size());
+            result.put("reason", scopeIds(user.getUserId()).isEmpty() ? "NO_SCOPE" : "OK");
+        } else {
+            result.put("allowed", total);
+            result.put("reason", total == 0 ? "NO_EQUIPMENT" : "OK");
+        }
+        return result;
+    }
+
+    public List<Map<String, Object>> equipmentOptions() {        LoginUser user = AuthContext.require();
         String sql = "select e.equipment_id as `value`, e.equipment_name as `equipmentName`, " +
                 "e.equipment_code as `equipmentCode`, h.hospital_name as `hospitalName`, e.status as `equipmentStatus`, " +
                 "concat(e.equipment_name, ' · ', e.equipment_code) as `label`, " +

@@ -709,13 +709,21 @@ public class SystemService {
                 "r.data_scope as `dataScope`, r.status, r.remark, r.company_id as `companyId`, " +
                 "r.role_type as `roleType`, r.assignable, c.company_name as `companyName` from sys_role r " +
                 "left join biz_company c on c.company_id=r.company_id ";
+        List<Map<String, Object>> rows;
         if (companyId == null) {
-            return jdbc.queryForList(sql + " order by r.sort");
+            rows = jdbc.queryForList(sql + " order by r.sort");
+        } else {
+            rows = jdbc.queryForList(sql +
+                    " where ((r.company_id = ?) or (r.company_id is null and r.assignable = '1')) " +
+                    " and r.role_key not like 'hospital_%' " +
+                    " order by r.sort", companyId);
         }
-        return jdbc.queryForList(sql +
-                " where ((r.company_id = ?) or (r.company_id is null and r.assignable = '1')) " +
-                " and r.role_key not like 'hospital_%' " +
-                " order by r.sort", companyId);
+        for (Map<String, Object> row : rows) {
+            row.put("roleRank", roleRank(String.valueOf(row.get("roleKey"))));
+        }
+        rows.sort((a, b) -> Integer.compare(
+                ((Number) b.get("roleRank")).intValue(), ((Number) a.get("roleRank")).intValue()));
+        return rows;
     }
 
     public void saveRole(Map<String, Object> body) {

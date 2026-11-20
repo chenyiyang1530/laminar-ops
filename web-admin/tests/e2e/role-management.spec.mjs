@@ -39,11 +39,11 @@ test('标准角色不可删除且角色管理截图', async ({ page, request }) 
     mask: [page.locator('.el-alert'), page.locator('.el-loading-mask'), page.locator('.el-message')]
   })
 
-  await page.locator('.role-actions .el-select').click()
+  await page.locator('.role-actions .assignable-select').click()
   await page.locator('.el-select-dropdown__item:visible').filter({ hasText: '不可分配' }).click()
   await expect(page).toHaveURL(/assignable=0/)
   await page.reload()
-  await expect(page.locator('.role-actions .el-select')).toContainText('不可分配')
+  await expect(page.locator('.role-actions .assignable-select')).toContainText('不可分配')
 })
 
 test('院方管理员只能创建院方子管理员和科室用户', async ({ request }) => {

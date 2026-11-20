@@ -7,6 +7,14 @@ import com.laminar.ops.system.dto.RoleAssignLogQuery;
 import com.laminar.ops.system.service.SystemService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -109,6 +117,44 @@ public class SystemController {
     @Perm("system:role:list")
     public Result<List<Map<String, Object>>> roles() {
         return Result.ok(systemService.roleList());
+    }
+
+    @GetMapping("/role/export")
+    @Perm("system:role:export")
+    public ResponseEntity<byte[]> exportRoles() throws Exception {
+        List<Map<String, Object>> rows = systemService.roleList();
+        try (Workbook workbook = new XSSFWorkbook(); var out = new java.io.ByteArrayOutputStream()) {
+            Sheet sheet = workbook.createSheet("角色分组");
+            String[] headers = {"角色名称", "权限字符", "分组", "等级", "可分配", "所属公司", "数据范围", "状态", "备注"};
+            Row header = sheet.createRow(0);
+            for (int i = 0; i < headers.length; i++) header.createCell(i).setCellValue(headers[i]);
+            int index = 1;
+            for (Map<String, Object> role : rows) {
+                Row row = sheet.createRow(index++);
+                String key = String.valueOf(role.get("roleKey"));
+                String group = key.startsWith("hospital_") ? "院方" : role.get("companyId") != null ? "公司" : "平台";
+                setCell(row, 0, role.get("roleName"));
+                setCell(row, 1, key);
+                setCell(row, 2, group);
+                setCell(row, 3, role.get("roleRank"));
+                setCell(row, 4, "1".equals(String.valueOf(role.get("assignable"))) ? "可分配" : "不可分配");
+                setCell(row, 5, role.get("companyName"));
+                setCell(row, 6, role.get("dataScope"));
+                setCell(row, 7, "0".equals(String.valueOf(role.get("status"))) ? "正常" : "停用");
+                setCell(row, 8, role.get("remark"));
+            }
+            for (int i = 0; i < headers.length; i++) sheet.autoSizeColumn(i);
+            workbook.write(out);
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=roles.xlsx")
+                    .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                    .body(out.toByteArray());
+        }
+    }
+
+    private void setCell(Row row, int index, Object value) {
+        Cell cell = row.createCell(index);
+        cell.setCellValue(value == null ? "" : String.valueOf(value));
     }
 
     @PostMapping("/role")

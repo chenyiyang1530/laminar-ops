@@ -28,6 +28,12 @@ public class DeviceControlController {
         return Result.ok(controlService.equipmentOptions());
     }
 
+    @GetMapping("/equipment/context")
+    @Perm("device:control:view")
+    public Result<Map<String, Object>> equipmentContext() {
+        return Result.ok(controlService.equipmentContext());
+    }
+
     @GetMapping("/config/{equipmentId}")
     @Perm("device:control:view")
     public Result<Map<String, Object>> config(@PathVariable Long equipmentId) {

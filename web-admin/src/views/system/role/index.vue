@@ -11,7 +11,14 @@
       <div class="page-title">
         <div><h2>角色管理</h2><div class="sub">角色权限、数据范围与菜单授权</div></div>
         <div class="role-actions">
-          <el-select v-model="assignableFilter" style="width: 140px" placeholder="可分配" @change="syncFilterUrl">
+          <el-select v-model="roleSort" style="width: 150px" @change="syncFilterUrl">
+            <el-option label="等级高 → 低" value="rankDesc" />
+            <el-option label="等级低 → 高" value="rankAsc" />
+            <el-option label="默认排序" value="default" />
+          </el-select>
+          <el-button @click="groupCollapsed = !groupCollapsed">{{ groupCollapsed ? '展开分组' : '折叠分组' }}</el-button>
+          <el-button @click="exportRoles">导出 Excel</el-button>
+          <el-select v-model="assignableFilter" class="assignable-select" style="width: 140px" placeholder="可分配" @change="syncFilterUrl">
             <el-option label="全部角色" value="" />
             <el-option label="可分配" value="1" />
             <el-option label="不可分配" value="0" />
@@ -25,10 +32,17 @@
         <el-radio-button label="company">公司（{{ groupCounts.company }}）</el-radio-button>
         <el-radio-button label="hospital">院方（{{ groupCounts.hospital }}）</el-radio-button>
       </el-radio-group>
-      <el-table :data="filteredRecords" stripe>
+      <div v-if="groupCollapsed" class="group-summary">
+        <el-card v-for="g in groupSummary" :key="g.key" shadow="never" class="group-card" @click="expandGroup(g.key)">
+          <div class="group-name">{{ g.label }}（{{ g.roles.length }}）</div>
+          <div class="group-roles">{{ g.roles.map((r) => r.roleName).join('、') || '暂无角色' }}</div>
+        </el-card>
+      </div>
+      <el-table v-else :data="filteredRecords" stripe>
         <el-table-column type="index" label="序号" width="62" align="center" />
         <el-table-column prop="roleName" label="角色名称" min-width="140" />
         <el-table-column prop="roleKey" label="权限字符" min-width="150" />
+        <el-table-column prop="roleRank" label="等级" width="80" />
         <el-table-column label="分组" width="90">
           <template #default="{ row }">
             <el-tag size="small" :type="roleGroup(row) === 'hospital' ? 'warning' : roleGroup(row) === 'company' ? 'success' : 'info'">
@@ -170,6 +184,8 @@ const canEditRow = (row) => store.isSuperAdmin || !!row.companyId
 const records = ref([])
 const assignableFilter = ref(String(route.query.assignable || ''))
 const groupFilter = ref(String(route.query.group || ''))
+const roleSort = ref(String(route.query.sort || 'rankDesc'))
+const groupCollapsed = ref(false)
 const roleGroup = (row) => String(row.roleKey || '').startsWith('hospital_') ? 'hospital'
   : row.companyId ? 'company' : 'platform'
 const roleGroupText = (row) => ({ platform: '平台', company: '公司', hospital: '院方' }[roleGroup(row)])
@@ -177,6 +193,25 @@ const groupCounts = computed(() => records.value.reduce((acc, row) => {
   acc[roleGroup(row)] = (acc[roleGroup(row)] || 0) + 1
   return acc
 }, { platform: 0, company: 0, hospital: 0 }))
+const groupSummary = computed(() => [
+  { key: 'platform', label: '平台角色', roles: records.value.filter((r) => roleGroup(r) === 'platform') },
+  { key: 'company', label: '公司角色', roles: records.value.filter((r) => roleGroup(r) === 'company') },
+  { key: 'hospital', label: '院方角色', roles: records.value.filter((r) => roleGroup(r) === 'hospital') }
+])
+function expandGroup(key) {
+  groupFilter.value = key
+  groupCollapsed.value = false
+}
+async function exportRoles() {
+  const res = await request.get('/system/role/export', { responseType: 'blob' })
+  const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'roles.xlsx'
+  a.click()
+  URL.revokeObjectURL(url)
+}
 const assignDrawer = ref(false)
 const assignRole = ref(null)
 const assignLogs = ref([])
@@ -184,9 +219,15 @@ const assignAction = ref('')
 const assignPage = ref(1)
 const assignSize = ref(10)
 const assignTotal = ref(0)
-const filteredRecords = computed(() => records.value
-  .filter((row) => !groupFilter.value || roleGroup(row) === groupFilter.value)
-  .filter((row) => !assignableFilter.value || row.assignable === assignableFilter.value))
+const filteredRecords = computed(() => {
+  const list = records.value
+    .filter((row) => !groupFilter.value || roleGroup(row) === groupFilter.value)
+    .filter((row) => !assignableFilter.value || row.assignable === assignableFilter.value)
+    .slice()
+  if (roleSort.value === 'rankDesc') list.sort((a, b) => Number(b.roleRank || 0) - Number(a.roleRank || 0))
+  if (roleSort.value === 'rankAsc') list.sort((a, b) => Number(a.roleRank || 0) - Number(b.roleRank || 0))
+  return list
+})
 const dialog = ref(false)
 const form = reactive({})
 const current = ref(null)
@@ -326,6 +367,10 @@ onMounted(load)
 .role-tip { margin-bottom: 12px; }
 .role-actions { display: flex; align-items: center; gap: 10px; }
 .role-groups { margin-bottom: 12px; }
+.group-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.group-card { cursor: pointer; border-radius: 10px; }
+.group-name { font-weight: 600; margin-bottom: 6px; }
+.group-roles { color: #6b7280; font-size: 12px; line-height: 1.6; }
 .standard-hint { width: 100%; margin-top: 4px; color: #909399; font-size: 11px; line-height: 1.4; }
 .standard-alert { margin-bottom: 12px; }
 .assign-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }

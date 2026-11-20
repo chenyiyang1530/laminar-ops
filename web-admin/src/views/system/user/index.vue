@@ -111,7 +111,7 @@
           <el-col v-if="accountType === 'engineer'" :span="12"><el-form-item label="绑定工程师"><el-select v-model="form.engineerId" clearable filterable :disabled="!canBindEngineer" style="width: 100%" :placeholder="canBindEngineer ? '选择工程师档案' : '请先选择维保部或下级部门'" @change="onEngineerChange"><el-option v-for="e in engineers" :key="e.value" :label="e.label" :value="e.value" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="手机号（登录用）" prop="phone"><el-input v-model="form.phone" maxlength="11" inputmode="numeric" placeholder="11位手机号" @input="onPhoneInput" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="邮箱（登录用）" prop="email"><el-input v-model="form.email" maxlength="100" placeholder="name@example.com" /></el-form-item></el-col>
-          <el-col v-if="!isHospitalType" :span="12"><el-form-item label="角色"><el-select v-model="form.roleIds" multiple :disabled="isSelf" style="width: 100%" @change="onRoleChange"><el-option v-for="r in roles" :key="r.roleId" :label="r.roleName" :value="r.roleId" /></el-select><div v-if="form.roleNames?.length" class="current-role">当前角色：{{ form.roleNames.join('、') }}<span v-if="form.roleRank"> · 等级 {{ form.roleRank }}</span></div><div v-if="isSelf" class="hint">不能修改自己的角色，请由上级管理员操作</div></el-form-item></el-col>
+          <el-col v-if="!isHospitalType" :span="12"><el-form-item label="角色"><el-select v-model="form.roleIds" multiple :disabled="isSelf" style="width: 100%" @change="onRoleChange"><el-option v-for="r in roles" :key="r.roleId" :label="r.roleName" :value="r.roleId" /></el-select><div v-if="form.roleNames?.length" class="current-role">当前角色：{{ form.roleNames.join('、') }}<span v-if="form.roleRank"> · 等级 {{ form.roleRank }}</span></div><div v-if="assignableReason" class="hint">{{ assignableReason }}</div></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="状态"><el-radio-group v-model="form.status"><el-radio value="0">正常</el-radio><el-radio value="1">停用</el-radio></el-radio-group></el-form-item></el-col>
         </el-row>
         <el-alert v-if="!form.userId" type="info" :closable="false" title="新增员工使用系统参数中的账号初始密码，首次登录需修改" />
@@ -130,6 +130,15 @@ import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
 const isSelf = computed(() => !!form.userId && String(form.userId) === String(store.user?.userId || ''))
+const roleRankMap = { super_admin: 1000, company_admin: 900, company_sub_admin: 800, company_executive: 700, maintenance_manager: 600, regional_manager: 500, engineer: 400, department_staff: 300, hospital_admin: 200, hospital_sub_admin: 150, hospital_dept: 100 }
+const actorRank = computed(() => Math.max(0, ...(store.roles || []).map((k) => roleRankMap[k] || 0)))
+const assignableReason = computed(() => {
+  if (!form.userId) return ''
+  if (isSelf.value) return '不能修改自己的角色，请由上级管理员操作'
+  const missing = (form.roleIds || []).filter((id) => !roles.value.some((r) => String(r.roleId) === String(id)))
+  if (missing.length) return `当前角色等级 ${form.roleRank || '—'}，高于或等于操作人等级 ${actorRank.value}，所以当前角色不可分配`
+  return `当前角色等级 ${form.roleRank || '—'}；同级或更高角色不可分配`
+})
 const has = (a) => store.hasPerm('system:user:' + a)
 const records = ref([])
 const total = ref(0)
