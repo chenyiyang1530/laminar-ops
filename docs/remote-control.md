@@ -66,5 +66,6 @@ S7_GATEWAY
 - PLC 必须保留就地优先、消防、急停和故障停机。
 - 运行反馈未确认时命令记为 TIMEOUT，不能显示成功。
 - 生产使用前必须进行单机试点和现场安全验收。
-- 当前命令权限沿用 `monitor:server:view`，正式上线建议拆分为独立 `device:control` 权限并接入第二人复核。
+- 查看入口使用 `device:control:view`；启动/停止命令使用独立 `device:control` 权限。公司管理员和公司子管理员默认拥有这两个权限。
+
 
