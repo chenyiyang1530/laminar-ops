@@ -4,6 +4,12 @@ $ErrorActionPreference = "Stop"
 $root = "D:\ideaWork\laminar-ops"
 $backend = Join-Path $root "backend"
 $jar = Join-Path $backend "target\laminar-ops-1.0.0.jar"
+$controlJar = Join-Path $backend "target\laminar-ops-1.0.0-control.jar"
+$jarArg = "target\laminar-ops-1.0.0.jar"
+if (Test-Path $controlJar) {
+  $jar = $controlJar
+  $jarArg = "target\laminar-ops-1.0.0-control.jar"
+}
 $secretFile = Join-Path $root ".secrets.local"
 $log = Join-Path $backend "app-current.log"
 
@@ -48,7 +54,7 @@ if (-not (Test-NetConnection -ComputerName 127.0.0.1 -Port 6380 -InformationLeve
 
 $java = if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME "bin\java.exe" } else { "java" }
 $proc = Start-Process -FilePath $java `
-  -ArgumentList @("-jar", "target\laminar-ops-1.0.0.jar", "--server.port=8080") `
+  -ArgumentList @("-jar", $jarArg, "--server.port=8080") `
   -WorkingDirectory $backend `
   -RedirectStandardOutput $log `
   -RedirectStandardError (Join-Path $backend "app-current.err") `
