@@ -23,31 +23,31 @@ public class DeviceControlController {
     private final DeviceControlService controlService;
 
     @GetMapping("/equipment/options")
-    @Perm("monitor:server:view")
+    @Perm("device:control:view")
     public Result<List<Map<String, Object>>> equipmentOptions() {
         return Result.ok(controlService.equipmentOptions());
     }
 
     @GetMapping("/config/{equipmentId}")
-    @Perm("monitor:server:view")
+    @Perm("device:control:view")
     public Result<Map<String, Object>> config(@PathVariable Long equipmentId) {
         return Result.ok(controlService.config(equipmentId));
     }
 
     @PostMapping("/config")
-    @Perm("monitor:server:view")
+    @Perm("device:control:view")
     public Result<Map<String, Object>> saveConfig(@RequestBody Map<String, Object> body) {
         return Result.ok(controlService.saveConfig(body));
     }
 
     @GetMapping("/status/{equipmentId}")
-    @Perm("monitor:server:view")
+    @Perm("device:control:view")
     public Result<Map<String, Object>> status(@PathVariable Long equipmentId) {
         return Result.ok(controlService.status(equipmentId));
     }
 
     @PostMapping("/command/{equipmentId}")
-    @Perm("monitor:server:view")
+    @Perm("device:control:view")
     public Result<Map<String, Object>> command(@PathVariable Long equipmentId,
                                                @RequestBody Map<String, Object> body) {
         return Result.ok(controlService.execute(equipmentId,
@@ -58,9 +58,10 @@ public class DeviceControlController {
     }
 
     @GetMapping("/history/{equipmentId}")
-    @Perm("monitor:server:view")
+    @Perm("device:control:view")
     public Result<List<Map<String, Object>>> history(@PathVariable Long equipmentId,
                                                      @RequestParam(defaultValue = "20") int limit) {
         return Result.ok(controlService.history(equipmentId, Math.min(Math.max(limit, 1), 100)));
     }
 }
+
