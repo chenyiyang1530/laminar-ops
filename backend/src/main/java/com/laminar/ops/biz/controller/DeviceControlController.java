@@ -109,5 +109,11 @@ public class DeviceControlController {
                                                      @RequestParam(defaultValue = "20") int limit) {
         return Result.ok(controlService.history(equipmentId, Math.min(Math.max(limit, 1), 100)));
     }
+
+    @GetMapping("/audit/monthly")
+    @Perm("device:control:view")
+    public Result<Map<String, Object>> monthlyAudit(@RequestParam String month) {
+        return Result.ok(controlService.monthlyAudit(month));
+    }
 }
 

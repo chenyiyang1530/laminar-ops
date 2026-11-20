@@ -17,6 +17,7 @@
             <el-option label="默认排序" value="default" />
           </el-select>
           <el-button @click="groupCollapsed = !groupCollapsed">{{ groupCollapsed ? '展开分组' : '折叠分组' }}</el-button>
+          <el-checkbox v-model="defaultCollapse" @change="onDefaultCollapseChange">默认折叠</el-checkbox>
           <el-button @click="exportRoles">导出 Excel</el-button>
           <el-select v-model="assignableFilter" class="assignable-select" style="width: 140px" placeholder="可分配" @change="syncFilterUrl">
             <el-option label="全部角色" value="" />
@@ -185,7 +186,12 @@ const records = ref([])
 const assignableFilter = ref(String(route.query.assignable || ''))
 const groupFilter = ref(String(route.query.group || ''))
 const roleSort = ref(String(route.query.sort || 'rankDesc'))
-const groupCollapsed = ref(false)
+const defaultCollapse = ref(localStorage.getItem('laminar_role_default_collapsed') === '1')
+const groupCollapsed = ref(defaultCollapse.value)
+function onDefaultCollapseChange(value) {
+  localStorage.setItem('laminar_role_default_collapsed', value ? '1' : '0')
+  groupCollapsed.value = value
+}
 const roleGroup = (row) => String(row.roleKey || '').startsWith('hospital_') ? 'hospital'
   : row.companyId ? 'company' : 'platform'
 const roleGroupText = (row) => ({ platform: '平台', company: '公司', hospital: '院方' }[roleGroup(row)])

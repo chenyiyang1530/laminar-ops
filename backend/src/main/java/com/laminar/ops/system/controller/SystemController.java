@@ -144,6 +144,19 @@ public class SystemController {
                 setCell(row, 8, role.get("remark"));
             }
             for (int i = 0; i < headers.length; i++) sheet.autoSizeColumn(i);
+            Sheet detail = workbook.createSheet("权限明细");
+            Row detailHeader = detail.createRow(0);
+            String[] detailHeaders = {"角色", "菜单", "权限字符", "类型"};
+            for (int i = 0; i < detailHeaders.length; i++) detailHeader.createCell(i).setCellValue(detailHeaders[i]);
+            int detailIndex = 1;
+            for (Map<String, Object> permission : systemService.rolePermissionDetails()) {
+                Row row = detail.createRow(detailIndex++);
+                setCell(row, 0, permission.get("roleName"));
+                setCell(row, 1, permission.get("menuName"));
+                setCell(row, 2, permission.get("perms"));
+                setCell(row, 3, permission.get("menuType"));
+            }
+            for (int i = 0; i < detailHeaders.length; i++) detail.autoSizeColumn(i);
             workbook.write(out);
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=roles.xlsx")

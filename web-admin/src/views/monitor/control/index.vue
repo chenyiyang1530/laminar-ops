@@ -18,8 +18,9 @@
     <el-card shadow="never" class="card">
       <el-form label-width="100px" style="max-width: 720px">
         <el-form-item label="设备">
+          <el-input v-model="equipmentKeyword" clearable placeholder="搜索设备名称、编码、医院" style="width: 100%; margin-bottom: 6px" />
           <el-select v-model="equipmentId" filterable style="width: 100%" @change="loadStatus">
-            <el-option v-for="e in equipmentOptions" :key="e.value"
+            <el-option v-for="e in filteredEquipmentOptions" :key="e.value"
               :label="`${e.equipmentCode || ''} · ${e.equipmentName || ''} · ${e.hospitalName || '未关联医院'} · ${e.equipmentStatus === '0' ? '正常' : '停用'}`"
               :value="e.value" />
           </el-select>
@@ -123,6 +124,9 @@
                 <el-option label="驳回" value="REJECTED" /><el-option label="已撤销" value="EXPIRED" />
               </el-select>
               <el-input v-model="historyOperator" size="small" placeholder="操作人" style="width: 120px" clearable />
+              <el-date-picker v-model="historyRange" type="daterange" value-format="YYYY-MM-DD" size="small"
+                start-placeholder="开始日期" end-placeholder="结束日期" style="width: 240px" />
+              <el-button size="small" @click="openMonthly">月度审计</el-button>
             </div>
           </div>
         </template>
@@ -207,6 +211,24 @@
           <el-button type="success" @click="submitReview(true)">复核通过并执行</el-button>
         </template>
       </el-dialog>
+
+      <el-dialog v-model="monthlyDialog" title="月度控制审计报表" width="860px">
+        <div class="monthly-toolbar">
+          <el-input v-model="monthlyValue" placeholder="YYYY-MM" style="width: 130px" />
+          <el-button @click="loadMonthly">查询</el-button>
+          <el-button @click="exportMonthly">导出 CSV</el-button>
+          <span class="hint">总数 {{ monthly.summary.total || 0 }} · 成功 {{ monthly.summary.success || 0 }} · 待复核 {{ monthly.summary.pending || 0 }} · 其他 {{ monthly.summary.failed || 0 }}</span>
+        </div>
+        <el-table :data="monthly.records" size="small" max-height="420">
+          <el-table-column prop="createTime" label="时间" width="165" />
+          <el-table-column prop="equipmentName" label="设备" min-width="140" />
+          <el-table-column prop="action" label="动作" width="80" />
+          <el-table-column prop="status" label="状态" width="110" />
+          <el-table-column prop="operatorName" label="操作人" width="100" />
+          <el-table-column prop="reviewBy" label="复核人" width="100" />
+          <el-table-column prop="reason" label="原因" min-width="150" show-overflow-tooltip />
+        </el-table>
+      </el-dialog>
     </template>
   </div>
 </template>
@@ -224,6 +246,13 @@ const canScope = store.hasPerm('device:control:scope')
 
 const equipmentOptions = ref([])
 const equipmentContext = ref({})
+const equipmentKeyword = ref('')
+const filteredEquipmentOptions = computed(() => {
+  const keyword = equipmentKeyword.value.trim().toLowerCase()
+  if (!keyword) return equipmentOptions.value
+  return equipmentOptions.value.filter((e) =>
+    `${e.equipmentName || ''} ${e.equipmentCode || ''} ${e.hospitalName || ''}`.toLowerCase().includes(keyword))
+})
 const equipmentId = ref(null)
 const status = ref({ configured: false })
 const config = computed(() => status.value.config || {})
@@ -244,11 +273,18 @@ const reviewConfirmText = ref('')
 const historyAction = ref('')
 const historyStatus = ref('')
 const historyOperator = ref('')
-const filteredHistory = computed(() => (status.value.history || []).filter((row) =>
-  (!historyAction.value || row.action === historyAction.value) &&
-  (!historyStatus.value || row.status === historyStatus.value) &&
-  (!historyOperator.value || String(row.operatorName || '').includes(historyOperator.value))
-))
+const historyRange = ref([])
+const monthlyDialog = ref(false)
+const monthly = ref({ summary: {}, records: [] })
+const monthlyValue = ref(new Date().toISOString().slice(0, 7))
+const filteredHistory = computed(() => (status.value.history || []).filter((row) => {
+  const date = String(row.createTime || '').slice(0, 10)
+  const inRange = !historyRange.value?.length || (date >= historyRange.value[0] && date <= historyRange.value[1])
+  return inRange &&
+    (!historyAction.value || row.action === historyAction.value) &&
+    (!historyStatus.value || row.status === historyStatus.value) &&
+    (!historyOperator.value || String(row.operatorName || '').includes(historyOperator.value))
+}))
 const form = reactive({
   equipmentId: null, brand: 'SIEMENS_LOGO', protocol: 'SIMULATOR', enabled: true, host: '', port: 502, unitId: 1,
   area: 'HOLDING', startAddress: 0, stopAddress: 1, runStatusAddress: 2, localRemoteAddress: 3,
@@ -308,6 +344,29 @@ async function loadStatus() {
   status.value = (await request.get(`/control/status/${equipmentId.value}`)).data || { configured: false }
   editing.value = !status.value.configured
   if (status.value.configured) Object.assign(form, { equipmentId: equipmentId.value, ...status.value.config })
+}
+
+function openMonthly() {
+  monthlyDialog.value = true
+  loadMonthly()
+}
+
+async function loadMonthly() {
+  if (!monthlyValue.value) return
+  monthly.value = (await request.get('/control/audit/monthly', { params: { month: monthlyValue.value } })).data || { summary: {}, records: [] }
+}
+
+function exportMonthly() {
+  const rows = monthly.value.records || []
+  const header = ['时间', '设备', '动作', '状态', '操作人', '复核人', '原因', '结果']
+  const lines = [header, ...rows.map((r) => [r.createTime, r.equipmentName, r.action, r.status, r.operatorName, r.reviewBy, r.reason, r.errorMessage])]
+  const csv = '\uFEFF' + lines.map((line) => line.map((v) => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n')
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=UTF-8' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `control-audit-${monthlyValue.value}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 async function saveConfig() {
@@ -396,5 +455,6 @@ onMounted(async () => {
 .empty-hint { width: 100%; margin-top: 6px; color: #b45309; font-size: 12px; }
 .review-block { margin-top: 12px; }
 .history-filters { display: flex; gap: 6px; }
+.monthly-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .snapshot { margin: 6px 0; padding: 10px; max-height: 170px; overflow: auto; background: #0f172a; color: #dbeafe; border-radius: 8px; font-size: 12px; white-space: pre-wrap; }
 </style>

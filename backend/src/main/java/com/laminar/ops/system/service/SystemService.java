@@ -726,6 +726,16 @@ public class SystemService {
         return rows;
     }
 
+    public List<Map<String, Object>> rolePermissionDetails() {
+        return jdbc.queryForList(
+                "select r.role_id as `roleId`, r.role_name as `roleName`, m.menu_name as `menuName`, " +
+                        "m.perms, m.menu_type as `menuType` from sys_role r " +
+                        "join sys_role_menu rm on rm.role_id=r.role_id " +
+                        "join sys_menu m on m.menu_id=rm.menu_id " +
+                        "where m.perms is not null and m.perms <> '' " +
+                        "order by r.role_id, m.order_num, m.menu_id");
+    }
+
     public void saveRole(Map<String, Object> body) {
         LoginUser user = AuthContext.require();
         Long companyId = dataScope.companyId(user);

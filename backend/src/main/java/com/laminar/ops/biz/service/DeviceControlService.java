@@ -17,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -453,8 +454,35 @@ public class DeviceControlService {
         return ids.size();
     }
 
-    public List<Map<String, Object>> history(Long equipmentId, int limit) {
-        Map<String, Object> equipment = requireEquipment(equipmentId);
+    public Map<String, Object> monthlyAudit(String month) {
+        String target = str(month).trim();
+        if (!target.matches("\\d{4}-\\d{2}")) throw BizException.badRequest("月份格式必须是 YYYY-MM");
+        Long companyId = AuthContext.require().getCompanyId();
+        String start = target + "-01 00:00:00";
+        String end = LocalDate.parse(target + "-01").plusMonths(1) + " 00:00:00";
+        String where = " where create_time >= ? and create_time < ?";
+        List<Object> args = new ArrayList<>();
+        args.add(start);
+        args.add(end);
+        if (companyId != null) {
+            where += " and company_id=?";
+            args.add(companyId);
+        }
+        List<Map<String, Object>> records = jdbc.queryForList(
+                "select command_no as `commandNo`, equipment_name as `equipmentName`, action, status, " +
+                        "operator_name as `operatorName`, review_by as `reviewBy`, reason, error_message as `errorMessage`, " +
+                        "date_format(create_time,'%Y-%m-%d %H:%i:%s') as `createTime` " +
+                        "from biz_control_command" + where + " order by create_time desc", args.toArray());
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("total", records.size());
+        summary.put("success", records.stream().filter(r -> "SUCCESS".equals(r.get("status"))).count());
+        summary.put("pending", records.stream().filter(r -> "PENDING_REVIEW".equals(r.get("status"))).count());
+        summary.put("failed", records.stream().filter(r -> !"SUCCESS".equals(r.get("status"))
+                && !"PENDING_REVIEW".equals(r.get("status"))).count());
+        return Map.of("month", target, "summary", summary, "records", records);
+    }
+
+    public List<Map<String, Object>> history(Long equipmentId, int limit) {        Map<String, Object> equipment = requireEquipment(equipmentId);
         ensureCompany(equipment);
         assertControlAllowed(AuthContext.require(), equipmentId);
         return jdbc.queryForList(

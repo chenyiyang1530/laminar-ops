@@ -108,6 +108,11 @@
           <el-breadcrumb-item v-for="(b, i) in breadcrumbs" :key="i">{{ b }}</el-breadcrumb-item>
         </el-breadcrumb>
         <div class="header-right">
+          <el-tooltip content="待复核远程控制" placement="bottom">
+            <el-badge :value="controlPending" :hidden="!controlPending" :max="99" class="msg-badge">
+              <el-icon class="hdr-icon" @click="$router.push('/workorder/monitor?tab=control')"><Bell /></el-icon>
+            </el-badge>
+          </el-tooltip>
           <el-tooltip content="消息中心" placement="bottom">
             <el-badge :value="unread" :hidden="!unread" :max="99" class="msg-badge">
               <el-icon class="hdr-icon" @click="$router.push('/message')"><Bell /></el-icon>
@@ -160,6 +165,7 @@ const platformName = ref('层流智能运维')
 const platformLogo = ref('')
 const unread = ref(0)
 const navBadges = ref({})
+const controlPending = computed(() => Number(navBadges.value.controlPending || 0))
 const menuRef = ref(null)
 
 const FAV_KEY = 'laminar_fav_menus'
@@ -321,7 +327,7 @@ async function loadBadges() {
 }
 
 function menuBadge(menuId) {
-  const field = { 4100: 'alarmUnhandled', 5110: 'workorderPending', 5310: 'inspectionOverdue', 5510: 'maintenanceOverdue' }[menuId]
+  const field = { 4100: 'alarmUnhandled', 5110: 'workorderPending', 5310: 'inspectionOverdue', 5510: 'maintenanceOverdue', 3020: 'controlPending' }[menuId]
   if (!field) return ''
   const n = Number(navBadges.value[field] || 0)
   return n > 99 ? '99+' : n > 0 ? String(n) : ''

@@ -30,6 +30,8 @@ public class NavBadgeService {
                 "select count(*) from biz_inspection_task where status='3'" + company));
         result.put("maintenanceOverdue", count(
                 "select count(*) from biz_maintenance_task where status='3'" + company));
+        result.put("controlPending", count(
+                "select count(*) from biz_control_command where status='PENDING_REVIEW'" + company));
         return result;
     }
 
