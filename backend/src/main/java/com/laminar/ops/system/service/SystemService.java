@@ -63,6 +63,7 @@ public class SystemService {
             Long roleCompany = role.get("companyId") == null ? null : ((Number) role.get("companyId")).longValue();
             if (user.isSuperAdmin()) return true;
             if (roleCompany != null && (companyId == null || !companyId.equals(roleCompany))) return false;
+            if (companyId != null && String.valueOf(role.get("roleKey")).startsWith("hospital_")) return false;
             if (roleCompany == null) {
                 Long roleId = ((Number) role.get("roleId")).longValue();
                 if (!"1".equals(String.valueOf(role.get("assignable")))) return false;
@@ -143,7 +144,7 @@ public class SystemService {
         LoginUser actor = AuthContext.require();
         Long companyId = dataScope.companyId(actor);
         if (companyId != null) {
-            where.append(" and u.company_id = ? ");
+            where.append(" and u.company_id = ? and u.user_type <> '2' ");
             args.add(companyId);
         } else if (actor.isHospitalUser()) {
             Long hospitalId = actor.getHospitalId();
@@ -702,7 +703,8 @@ public class SystemService {
             return jdbc.queryForList(sql + " order by r.sort");
         }
         return jdbc.queryForList(sql +
-                " where (r.company_id = ?) or (r.company_id is null and r.assignable = '1') " +
+                " where ((r.company_id = ?) or (r.company_id is null and r.assignable = '1')) " +
+                " and r.role_key not like 'hospital_%' " +
                 " order by r.sort", companyId);
     }
 
