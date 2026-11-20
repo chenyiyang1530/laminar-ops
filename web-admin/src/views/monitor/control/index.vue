@@ -40,8 +40,8 @@
         </el-descriptions>
         <el-alert v-if="status.error" :title="status.error" type="error" :closable="false" show-icon style="margin-top: 12px" />
         <div class="actions">
-          <el-button type="success" :disabled="!status.online || busy" @click="command('START')">远程启动</el-button>
-          <el-button type="danger" :disabled="!status.online || busy" @click="command('STOP')">远程停止</el-button>
+          <el-button type="success" :disabled="!status.online || busy || !canControl" @click="command('START')">远程启动</el-button>
+          <el-button type="danger" :disabled="!status.online || busy || !canControl" @click="command('STOP')">远程停止</el-button>
           <span class="hint">启动前会检查就地模式、联锁和故障码；确认文本为设备编码。</span>
         </div>
       </el-card>
@@ -118,6 +118,10 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
+import { useUserStore } from '@/store/user'
+
+const store = useUserStore()
+const canControl = store.hasPerm('device:control')
 
 const equipmentOptions = ref([])
 const equipmentId = ref(null)

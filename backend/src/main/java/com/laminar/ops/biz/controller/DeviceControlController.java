@@ -47,7 +47,7 @@ public class DeviceControlController {
     }
 
     @PostMapping("/command/{equipmentId}")
-    @Perm("device:control:view")
+    @Perm("device:control")
     public Result<Map<String, Object>> command(@PathVariable Long equipmentId,
                                                @RequestBody Map<String, Object> body) {
         return Result.ok(controlService.execute(equipmentId,
