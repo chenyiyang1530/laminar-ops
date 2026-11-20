@@ -19,10 +19,23 @@
           <el-button v-if="has('add')" type="primary" :icon="Plus" @click="openAdd">新增角色</el-button>
         </div>
       </div>
+      <el-radio-group v-model="groupFilter" size="small" class="role-groups">
+        <el-radio-button label="">全部（{{ records.length }}）</el-radio-button>
+        <el-radio-button label="platform">平台（{{ groupCounts.platform }}）</el-radio-button>
+        <el-radio-button label="company">公司（{{ groupCounts.company }}）</el-radio-button>
+        <el-radio-button label="hospital">院方（{{ groupCounts.hospital }}）</el-radio-button>
+      </el-radio-group>
       <el-table :data="filteredRecords" stripe>
         <el-table-column type="index" label="序号" width="62" align="center" />
         <el-table-column prop="roleName" label="角色名称" min-width="140" />
         <el-table-column prop="roleKey" label="权限字符" min-width="150" />
+        <el-table-column label="分组" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="roleGroup(row) === 'hospital' ? 'warning' : roleGroup(row) === 'company' ? 'success' : 'info'">
+              {{ roleGroupText(row) }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="类型" width="90">
           <template #default="{ row }">
             <el-tag :type="row.roleType === 'standard' ? 'success' : 'info'" size="small">
@@ -156,6 +169,14 @@ const has = (a) => store.hasPerm('system:role:' + a)
 const canEditRow = (row) => store.isSuperAdmin || !!row.companyId
 const records = ref([])
 const assignableFilter = ref(String(route.query.assignable || ''))
+const groupFilter = ref(String(route.query.group || ''))
+const roleGroup = (row) => String(row.roleKey || '').startsWith('hospital_') ? 'hospital'
+  : row.companyId ? 'company' : 'platform'
+const roleGroupText = (row) => ({ platform: '平台', company: '公司', hospital: '院方' }[roleGroup(row)])
+const groupCounts = computed(() => records.value.reduce((acc, row) => {
+  acc[roleGroup(row)] = (acc[roleGroup(row)] || 0) + 1
+  return acc
+}, { platform: 0, company: 0, hospital: 0 }))
 const assignDrawer = ref(false)
 const assignRole = ref(null)
 const assignLogs = ref([])
@@ -163,9 +184,9 @@ const assignAction = ref('')
 const assignPage = ref(1)
 const assignSize = ref(10)
 const assignTotal = ref(0)
-const filteredRecords = computed(() => assignableFilter.value
-  ? records.value.filter((row) => row.assignable === assignableFilter.value)
-  : records.value)
+const filteredRecords = computed(() => records.value
+  .filter((row) => !groupFilter.value || roleGroup(row) === groupFilter.value)
+  .filter((row) => !assignableFilter.value || row.assignable === assignableFilter.value))
 const dialog = ref(false)
 const form = reactive({})
 const current = ref(null)
@@ -304,6 +325,7 @@ onMounted(load)
 <style scoped>
 .role-tip { margin-bottom: 12px; }
 .role-actions { display: flex; align-items: center; gap: 10px; }
+.role-groups { margin-bottom: 12px; }
 .standard-hint { width: 100%; margin-top: 4px; color: #909399; font-size: 11px; line-height: 1.4; }
 .standard-alert { margin-bottom: 12px; }
 .assign-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }

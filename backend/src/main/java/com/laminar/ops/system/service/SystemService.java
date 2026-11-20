@@ -206,6 +206,13 @@ public class SystemService {
             }
         }
         user.put("roleIds", jdbc.queryForList("select role_id from sys_user_role where user_id=?", Long.class, id));
+        List<String> roleKeys = jdbc.queryForList(
+                "select r.role_key from sys_user_role ur join sys_role r on r.role_id=ur.role_id " +
+                        "where ur.user_id=? order by r.role_id", String.class, id);
+        user.put("roleKeys", roleKeys);
+        int roleLevel = 0;
+        for (String key : roleKeys) roleLevel = Math.max(roleLevel, roleRank(key));
+        user.put("roleRank", roleLevel);
         user.put("roleNames", jdbc.queryForList(
                 "select r.role_name from sys_user_role ur join sys_role r on r.role_id=ur.role_id " +
                         "where ur.user_id=? order by r.role_id", String.class, id));
