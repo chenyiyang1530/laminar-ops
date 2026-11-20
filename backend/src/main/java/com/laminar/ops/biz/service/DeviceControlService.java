@@ -11,6 +11,7 @@ import com.laminar.ops.security.AuthContext;
 import com.laminar.ops.security.LoginUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,8 @@ public class DeviceControlService {
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+    @Value("${laminar.control.expire-minutes:10}")
+    private int expireMinutes;
     private final Map<String, ControlDriver> drivers = Map.of(
             "SIMULATOR", new SimulatorDriver(),
             "MODBUS_TCP", new ModbusTcpDriver(),
@@ -199,6 +202,9 @@ public class DeviceControlService {
             result.put("online", false);
             result.put("error", e.getMessage());
         }
+        result.put("pendingCount", jdbc.queryForObject(
+                "select count(*) from biz_control_command where equipment_id=? and status='PENDING_REVIEW'",
+                Integer.class, equipmentId));
         result.put("history", history(equipmentId, 20));
         return result;
     }
@@ -234,6 +240,16 @@ public class DeviceControlService {
             return toCommand(jdbc.queryForMap("select * from biz_control_command where request_id=?", requestId));
         }
         Long commandId = jdbc.queryForObject("select command_id from biz_control_command where request_id=?", Long.class, requestId);
+        try {
+            ControlDriver driver = driver(cfg.protocol());
+            Map<String, Object> snapshot = readStatus(cfg, driver);
+            jdbc.update("update biz_control_command set interlock_snapshot=? where command_id=?",
+                    json(snapshot), commandId);
+        } catch (Exception e) {
+            jdbc.update("update biz_control_command set interlock_snapshot=? where command_id=?",
+                    "{\"error\":\"" + e.getMessage().replace("\"", "") + "\"}", commandId);
+        }
+        notifyApprovers(equipment, commandId, act, user.getNickName());
         return toCommand(jdbc.queryForMap("select * from biz_control_command where command_id=?", commandId));
     }
 
@@ -257,6 +273,9 @@ public class DeviceControlService {
         if (!pass) {
             jdbc.update("update biz_control_command set status='REJECTED',review_by=?,review_time=now(),review_remark=?,finish_time=now() where command_id=?",
                     user.getNickName(), remark, commandId);
+            notifyUser(((Number) command.get("operator_id")).longValue(), "远程控制命令被驳回",
+                    "您的控制命令被 " + user.getNickName() + " 驳回" + (remark == null || remark.isBlank() ? "" : "：" + remark),
+                    commandId, command.get("company_id") == null ? null : ((Number) command.get("company_id")).longValue());
             return toCommand(jdbc.queryForMap("select * from biz_control_command where command_id=?", commandId));
         }
         if (!"CONFIRM".equalsIgnoreCase(str(reviewConfirmText).trim())) {
@@ -265,7 +284,11 @@ public class DeviceControlService {
         jdbc.update("update biz_control_command set status='APPROVED',review_by=?,review_time=now(),review_remark=? where command_id=?",
                 user.getNickName(), remark, commandId);
         runApprovedCommand(commandId, equipmentId, String.valueOf(command.get("action")));
-        return toCommand(jdbc.queryForMap("select * from biz_control_command where command_id=?", commandId));
+        Map<String, Object> finished = jdbc.queryForMap("select * from biz_control_command where command_id=?", commandId);
+        notifyUser(((Number) command.get("operator_id")).longValue(), "远程控制命令复核完成",
+                "控制命令状态：" + finished.get("status") + "，复核人：" + user.getNickName(),
+                commandId, command.get("company_id") == null ? null : ((Number) command.get("company_id")).longValue());
+        return toCommand(finished);
     }
 
     private void runApprovedCommand(Long commandId, Long equipmentId, String act) {
@@ -333,6 +356,82 @@ public class DeviceControlService {
         if (current != null && (companyId == null || !current.equals(companyId))) {
             throw BizException.forbidden("无权操作其他公司的控制命令");
         }
+    }
+
+    private void notifyApprovers(Map<String, Object> equipment, Long commandId, String action, String operator) {
+        try {
+            Long companyId = equipment.get("company_id") == null ? null : ((Number) equipment.get("company_id")).longValue();
+            List<Long> users = jdbc.queryForList(
+                    "select distinct u.user_id from sys_user u " +
+                            "join sys_user_role ur on ur.user_id=u.user_id " +
+                            "join sys_role_menu rm on rm.role_id=ur.role_id " +
+                            "join sys_menu m on m.menu_id=rm.menu_id " +
+                            "where m.perms='device:control:approve' and u.status='0' " +
+                            "and (? is null or u.company_id=?)",
+                    Long.class, companyId, companyId);
+            for (Long userId : users) {
+                insertMessage(userId, null, "远程控制待复核",
+                        equipment.get("equipment_name") + " 的" + ("START".equals(action) ? "启动" : "停止")
+                                + "命令待复核，发起人：" + operator, commandId, companyId);
+            }
+        } catch (Exception e) {
+            log.warn("控制命令通知复核人失败: {}", e.getMessage());
+        }
+    }
+
+    private void notifyUser(Long userId, String title, String content, Long commandId, Long companyId) {
+        try {
+            if (userId != null) insertMessage(userId, null, title, content, commandId, companyId);
+        } catch (Exception e) {
+            log.warn("控制命令通知失败: {}", e.getMessage());
+        }
+    }
+
+    private void insertMessage(Long userId, String role, String title, String content, Long commandId, Long companyId) {
+        jdbc.update("insert into biz_message(msg_type,title,content,level,biz_type,biz_id,receiver_id,receiver_role,company_id,is_read,create_time) " +
+                        "values('control',?,?, '2', 'control', ?, ?, ?, ?, '0', now())",
+                title, content == null ? "" : content.substring(0, Math.min(content.length(), 950)),
+                commandId, userId == null ? 0 : userId, role, companyId);
+    }
+
+    public int expirePending() {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select command_id, operator_id, company_id, equipment_name from biz_control_command " +
+                        "where status='PENDING_REVIEW' and create_time < date_sub(now(), interval ? minute)",
+                expireMinutes);
+        for (Map<String, Object> row : rows) {
+            jdbc.update("update biz_control_command set status='EXPIRED',finish_time=now(),error_message=? " +
+                            "where command_id=? and status='PENDING_REVIEW'",
+                    "超过 " + expireMinutes + " 分钟未复核，自动撤销", row.get("command_id"));
+            notifyUser(row.get("operator_id") == null ? null : ((Number) row.get("operator_id")).longValue(),
+                    "远程控制命令已自动撤销",
+                    row.get("equipment_name") + " 的控制命令超过 " + expireMinutes + " 分钟未复核，已自动撤销",
+                    ((Number) row.get("command_id")).longValue(),
+                    row.get("company_id") == null ? null : ((Number) row.get("company_id")).longValue());
+        }
+        return rows.size();
+    }
+
+    public int importScope(Long userId, Map<String, Object> body) {
+        LoginUser user = AuthContext.require();
+        Long companyId = user.getCompanyId();
+        if (companyId == null) throw BizException.forbidden("只有公司管理员可以配置控制范围");
+        requireCompanySubAdmin(userId, companyId);
+        String raw = str(body.get("codes"));
+        if (raw.isBlank()) throw BizException.badRequest("请填写设备编码");
+        List<Long> ids = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        for (String code : raw.split("[,，;；\\s]+")) {
+            if (code.isBlank()) continue;
+            List<Long> found = jdbc.queryForList(
+                    "select equipment_id from biz_equipment where equipment_code=? and company_id=? and status='0'",
+                    Long.class, code.trim(), companyId);
+            if (found.isEmpty()) missing.add(code.trim());
+            else ids.add(found.get(0));
+        }
+        if (!missing.isEmpty()) throw BizException.badRequest("以下设备编码不存在或不属于本公司：" + String.join(",", missing));
+        saveScope(userId, Map.of("equipmentIds", ids));
+        return ids.size();
     }
 
     public List<Map<String, Object>> history(Long equipmentId, int limit) {

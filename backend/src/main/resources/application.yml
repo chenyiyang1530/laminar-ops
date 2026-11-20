@@ -103,6 +103,8 @@ laminar:
   autostart:
     task-name: ${AUTOSTART_TASK_NAME:LaminarOpsBackend}
     log-dir: ${AUTOSTART_LOG_DIR:D:/ideaWork/laminar-ops/logs}
+  control:
+    expire-minutes: ${CONTROL_EXPIRE_MINUTES:10}
   backup:
     enabled: ${BACKUP_ENABLED:true}
     script: ${BACKUP_SCRIPT:D:/ideaWork/laminar-ops/tools/backup.ps1}

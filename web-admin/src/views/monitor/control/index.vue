@@ -5,9 +5,14 @@
         <h2>远程控制</h2>
         <p>先选择 PLC 品牌和协议；未接硬件时使用模拟器验证启动/停止流程。</p>
       </div>
-      <el-tag v-if="status.configured" :type="status.online ? 'success' : 'danger'">
-        {{ status.online ? '控制器在线' : '控制器离线' }}
-      </el-tag>
+      <div>
+        <el-tag v-if="status.configured" :type="status.online ? 'success' : 'danger'">
+          {{ status.online ? '控制器在线' : '控制器离线' }}
+        </el-tag>
+        <el-tag v-if="status.pendingCount" type="warning" effect="dark" style="margin-left: 8px">
+          待复核 {{ status.pendingCount }}
+        </el-tag>
+      </div>
     </div>
 
     <el-card shadow="never" class="card">
@@ -117,8 +122,7 @@
           <el-table-column label="操作" width="140" fixed="right">
             <template #default="{ row }">
               <template v-if="row.status === 'PENDING_REVIEW' && canApprove">
-                <el-button link type="success" @click="review(row, true)">复核通过</el-button>
-                <el-button link type="danger" @click="review(row, false)">驳回</el-button>
+                <el-button link type="success" @click="openReview(row)">复核</el-button>
               </template>
               <span v-else class="hint">—</span>
             </template>
@@ -142,10 +146,52 @@
           </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="savingScope" :disabled="!scopeForm.userId" @click="saveScope">保存范围</el-button>
+            <el-button :disabled="!scopeForm.userId" @click="importDialog = true">批量导入</el-button>
             <span class="hint">未配置范围的子管理员看不到任何设备。</span>
           </el-form-item>
         </el-form>
       </el-card>
+
+      <el-dialog v-model="importDialog" title="批量导入可控制设备" width="560px">
+        <p class="hint">一行一个设备编码，也支持逗号分隔。</p>
+        <el-input v-model="importCodes" type="textarea" :rows="8" placeholder="AHU-01&#10;AHU-02" />
+        <template #footer>
+          <el-button @click="importDialog = false">取消</el-button>
+          <el-button type="primary" @click="importScope">导入</el-button>
+        </template>
+      </el-dialog>
+
+      <el-dialog v-model="reviewDialog" title="控制命令复核" width="720px">
+        <el-descriptions v-if="reviewRow" :column="2" border size="small">
+          <el-descriptions-item label="命令号">{{ reviewRow.commandNo }}</el-descriptions-item>
+          <el-descriptions-item label="动作">{{ reviewRow.action }}</el-descriptions-item>
+          <el-descriptions-item label="发起人">{{ reviewRow.operatorName }}</el-descriptions-item>
+          <el-descriptions-item label="时间">{{ reviewRow.createTime }}</el-descriptions-item>
+          <el-descriptions-item label="原因" :span="2">{{ reviewRow.reason || '—' }}</el-descriptions-item>
+        </el-descriptions>
+        <div class="review-block">
+          <b>提交时联锁快照</b>
+          <pre class="snapshot">{{ pretty(reviewRow?.interlockSnapshot) }}</pre>
+        </div>
+        <div class="review-block">
+          <b>当前实时状态</b>
+          <pre class="snapshot">{{ JSON.stringify(status.values || {}, null, 2) }}</pre>
+          <el-button size="small" @click="loadStatus">刷新状态</el-button>
+        </div>
+        <el-form label-width="90px" style="margin-top: 12px">
+          <el-form-item label="复核意见">
+            <el-input v-model="reviewRemark" type="textarea" :rows="2" placeholder="同意/驳回原因" />
+          </el-form-item>
+          <el-form-item label="确认文本">
+            <el-input v-model="reviewConfirmText" placeholder="通过时必须输入 CONFIRM" />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="reviewDialog = false">取消</el-button>
+          <el-button type="danger" @click="submitReview(false)">驳回</el-button>
+          <el-button type="success" @click="submitReview(true)">复核通过并执行</el-button>
+        </template>
+      </el-dialog>
     </template>
   </div>
 </template>
@@ -173,6 +219,12 @@ const testOk = ref(false)
 const scopeUsers = ref([])
 const savingScope = ref(false)
 const scopeForm = reactive({ userId: null, equipmentIds: [] })
+const importDialog = ref(false)
+const importCodes = ref('')
+const reviewDialog = ref(false)
+const reviewRow = ref(null)
+const reviewRemark = ref('')
+const reviewConfirmText = ref('')
 const form = reactive({
   equipmentId: null, brand: 'SIEMENS_LOGO', protocol: 'SIMULATOR', enabled: true, host: '', port: 502, unitId: 1,
   area: 'HOLDING', startAddress: 0, stopAddress: 1, runStatusAddress: 2, localRemoteAddress: 3,
@@ -261,15 +313,35 @@ async function command(action) {
   }
 }
 
-async function review(row, pass) {
-  await ElMessageBox.confirm(`确认${pass ? '复核通过并执行' : '驳回'}命令「${row.commandNo}」？`, '第二人复核', { type: 'warning' })
-  let confirmText = ''
-  if (pass) {
-    const { value } = await ElMessageBox.prompt('请输入 CONFIRM 确认执行', '复核确认', { inputPlaceholder: 'CONFIRM' })
-    confirmText = value
-  }
-  await request.post(`/control/command/${row.commandId}/review`, { pass, remark: '', confirmText })
+async function importScope() {
+  if (!scopeForm.userId || !importCodes.value.trim()) { ElMessage.warning('请选择子管理员并填写设备编码'); return }
+  await request.post(`/control/scope/${scopeForm.userId}/import`, { codes: importCodes.value })
+  ElMessage.success('设备范围已导入')
+  importDialog.value = false
+  importCodes.value = ''
+  await loadScope()
+  await loadScopeUsers()
+}
+
+function pretty(value) {
+  if (!value) return '暂无快照'
+  try { return JSON.stringify(typeof value === 'string' ? JSON.parse(value) : value, null, 2) } catch { return String(value) }
+}
+
+function openReview(row) {
+  reviewRow.value = row
+  reviewRemark.value = ''
+  reviewConfirmText.value = ''
+  reviewDialog.value = true
+}
+
+async function submitReview(pass) {
+  if (!pass && !reviewRemark.value.trim()) { ElMessage.warning('驳回时必须填写复核意见'); return }
+  await request.post(`/control/command/${reviewRow.value.commandId}/review`, {
+    pass, remark: reviewRemark.value, confirmText: pass ? reviewConfirmText.value : ''
+  })
   ElMessage.success(pass ? '复核通过，已下发 PLC' : '命令已驳回')
+  reviewDialog.value = false
   await loadStatus()
 }
 
@@ -288,4 +360,6 @@ onMounted(async () => {
 .actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
 .hint { color: #6b7280; font-size: 12px; }
 .empty-hint { width: 100%; margin-top: 6px; color: #b45309; font-size: 12px; }
+.review-block { margin-top: 12px; }
+.snapshot { margin: 6px 0; padding: 10px; max-height: 170px; overflow: auto; background: #0f172a; color: #dbeafe; border-radius: 8px; font-size: 12px; white-space: pre-wrap; }
 </style>

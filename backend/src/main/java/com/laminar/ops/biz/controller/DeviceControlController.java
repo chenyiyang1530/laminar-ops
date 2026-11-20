@@ -91,6 +91,12 @@ public class DeviceControlController {
         return Result.ok();
     }
 
+    @PostMapping("/scope/{userId}/import")
+    @Perm("device:control:scope")
+    public Result<Integer> importScope(@PathVariable Long userId, @RequestBody Map<String, Object> body) {
+        return Result.ok(controlService.importScope(userId, body));
+    }
+
     @GetMapping("/history/{equipmentId}")
     @Perm("device:control:view")
     public Result<List<Map<String, Object>>> history(@PathVariable Long equipmentId,
