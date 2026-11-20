@@ -14,8 +14,11 @@
       <el-form label-width="100px" style="max-width: 720px">
         <el-form-item label="设备">
           <el-select v-model="equipmentId" filterable style="width: 100%" @change="loadStatus">
-            <el-option v-for="e in equipmentOptions" :key="e.value" :label="e.label" :value="e.value" />
+            <el-option v-for="e in equipmentOptions" :key="e.value"
+              :label="`${e.equipmentCode || ''} · ${e.equipmentName || ''} · ${e.hospitalName || '未关联医院'} · ${e.equipmentStatus === '0' ? '正常' : '停用'}`"
+              :value="e.value" />
           </el-select>
+          <div v-if="!equipmentOptions.length" class="empty-hint">本公司暂无正常设备，请先到设备台账新增</div>
         </el-form-item>
       </el-form>
     </el-card>
@@ -42,8 +45,10 @@
         <div class="actions">
           <el-button type="success" :disabled="!status.online || busy || !canControl" @click="command('START')">远程启动</el-button>
           <el-button type="danger" :disabled="!status.online || busy || !canControl" @click="command('STOP')">远程停止</el-button>
-          <span class="hint">启动前会检查就地模式、联锁和故障码；确认文本为设备编码。</span>
+          <el-button plain :disabled="!status.online" @click="testConnection">测试 PLC 连通性</el-button>
+          <span class="hint">提交后进入待复核，第二人复核通过才会写 PLC。</span>
         </div>
+        <el-alert v-if="testResult" :title="testResult" :type="testOk ? 'success' : 'error'" :closable="true" show-icon style="margin-top: 10px" />
       </el-card>
 
       <el-card v-if="editing || !status.configured" shadow="never" class="card">
@@ -61,7 +66,7 @@
             <el-select v-model="form.protocol" style="width: 100%">
               <el-option label="模拟器（无硬件联调）" value="SIMULATOR" />
               <el-option label="Modbus TCP（SMART / LOGO! 8.1+）" value="MODBUS_TCP" />
-              <el-option label="S7 网关（暂未接入）" value="S7_GATEWAY" />
+              <el-option label="S7 网关（HTTP 边缘网关）" value="S7_GATEWAY" />
             </el-select>
           </el-form-item>
           <el-form-item label="启用控制">
@@ -104,11 +109,42 @@
         <el-table :data="status.history || []" size="small">
           <el-table-column prop="createTime" label="时间" width="170" />
           <el-table-column prop="action" label="动作" width="80" />
-          <el-table-column prop="status" label="结果" width="100" />
+          <el-table-column prop="status" label="结果" width="120" />
           <el-table-column prop="operatorName" label="操作人" width="110" />
-          <el-table-column prop="reason" label="原因" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="errorMessage" label="失败原因" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="reviewBy" label="复核人" width="100" />
+          <el-table-column prop="reason" label="原因" min-width="150" show-overflow-tooltip />
+          <el-table-column prop="errorMessage" label="失败原因" min-width="160" show-overflow-tooltip />
+          <el-table-column label="操作" width="140" fixed="right">
+            <template #default="{ row }">
+              <template v-if="row.status === 'PENDING_REVIEW' && canApprove">
+                <el-button link type="success" @click="review(row, true)">复核通过</el-button>
+                <el-button link type="danger" @click="review(row, false)">驳回</el-button>
+              </template>
+              <span v-else class="hint">—</span>
+            </template>
+          </el-table-column>
         </el-table>
+      </el-card>
+
+      <el-card v-if="canScope" shadow="never" class="card">
+        <template #header><b>公司子管理员可控制设备范围</b></template>
+        <el-form label-width="110px" style="max-width: 680px">
+          <el-form-item label="子管理员">
+            <el-select v-model="scopeForm.userId" style="width: 100%" @change="loadScope">
+              <el-option v-for="u in scopeUsers" :key="u.userId" :label="`${u.nickName}（${u.username}）`" :value="u.userId" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="可控制设备">
+            <el-select v-model="scopeForm.equipmentIds" multiple filterable collapse-tags style="width: 100%">
+              <el-option v-for="e in equipmentOptions" :key="e.value"
+                :label="`${e.equipmentCode || ''} · ${e.equipmentName || ''}`" :value="e.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="savingScope" :disabled="!scopeForm.userId" @click="saveScope">保存范围</el-button>
+            <span class="hint">未配置范围的子管理员看不到任何设备。</span>
+          </el-form-item>
+        </el-form>
       </el-card>
     </template>
   </div>
@@ -122,6 +158,8 @@ import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
 const canControl = store.hasPerm('device:control')
+const canApprove = store.hasPerm('device:control:approve')
+const canScope = store.hasPerm('device:control:scope')
 
 const equipmentOptions = ref([])
 const equipmentId = ref(null)
@@ -130,6 +168,11 @@ const config = computed(() => status.value.config || {})
 const editing = ref(false)
 const saving = ref(false)
 const busy = ref(false)
+const testResult = ref('')
+const testOk = ref(false)
+const scopeUsers = ref([])
+const savingScope = ref(false)
+const scopeForm = reactive({ userId: null, equipmentIds: [] })
 const form = reactive({
   equipmentId: null, brand: 'SIEMENS_LOGO', protocol: 'SIMULATOR', enabled: true, host: '', port: 502, unitId: 1,
   area: 'HOLDING', startAddress: 0, stopAddress: 1, runStatusAddress: 2, localRemoteAddress: 3,
@@ -141,6 +184,37 @@ const interlockText = computed(() => status.value.values?.interlockOk === 1 ? '�
 
 async function loadEquipment() {
   equipmentOptions.value = (await request.get('/control/equipment/options')).data || []
+}
+
+async function loadScopeUsers() {
+  if (!canScope) return
+  scopeUsers.value = (await request.get('/control/scope/users')).data || []
+}
+
+async function loadScope() {
+  if (!scopeForm.userId) return
+  const res = await request.get(`/control/scope/${scopeForm.userId}`)
+  scopeForm.equipmentIds = res.data.equipmentIds || []
+}
+
+async function saveScope() {
+  savingScope.value = true
+  try {
+    await request.post(`/control/scope/${scopeForm.userId}`, { equipmentIds: scopeForm.equipmentIds })
+    ElMessage.success('控制范围已保存')
+    await loadScopeUsers()
+  } finally {
+    savingScope.value = false
+  }
+}
+
+async function testConnection() {
+  const res = await request.get(`/control/test/${equipmentId.value}`)
+  const data = res.data || {}
+  testOk.value = !!data.ok
+  testResult.value = data.ok
+    ? `连接成功：${JSON.stringify(data.values || {})}`
+    : `连接失败：${data.error || '未知错误'}`
 }
 
 async function loadStatus() {
@@ -179,15 +253,30 @@ async function command(action) {
       action, reason: reason.value, confirmText: value, requestId: crypto.randomUUID()
     })
     const result = res.data
-    if (result.status === 'SUCCESS') ElMessage.success('命令执行成功')
-    else ElMessage.error(result.errorMessage || '命令未确认成功')
+    if (result.status === 'PENDING_REVIEW') ElMessage.success('命令已提交，等待第二人复核')
+    else ElMessage.error(result.errorMessage || '命令状态异常')
     await loadStatus()
   } finally {
     busy.value = false
   }
 }
 
-onMounted(loadEquipment)
+async function review(row, pass) {
+  await ElMessageBox.confirm(`确认${pass ? '复核通过并执行' : '驳回'}命令「${row.commandNo}」？`, '第二人复核', { type: 'warning' })
+  let confirmText = ''
+  if (pass) {
+    const { value } = await ElMessageBox.prompt('请输入 CONFIRM 确认执行', '复核确认', { inputPlaceholder: 'CONFIRM' })
+    confirmText = value
+  }
+  await request.post(`/control/command/${row.commandId}/review`, { pass, remark: '', confirmText })
+  ElMessage.success(pass ? '复核通过，已下发 PLC' : '命令已驳回')
+  await loadStatus()
+}
+
+onMounted(async () => {
+  await loadEquipment()
+  await loadScopeUsers()
+})
 </script>
 
 <style scoped>
@@ -198,4 +287,5 @@ onMounted(loadEquipment)
 .card-head { display: flex; justify-content: space-between; align-items: center; }
 .actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
 .hint { color: #6b7280; font-size: 12px; }
+.empty-hint { width: 100%; margin-top: 6px; color: #b45309; font-size: 12px; }
 </style>

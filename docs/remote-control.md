@@ -69,3 +69,23 @@ S7_GATEWAY
 - 查看入口使用 `device:control:view`；启动/停止命令使用独立 `device:control` 权限。公司管理员和公司子管理员默认拥有这两个权限。
 
 
+
+## 权限与复核
+
+- `device:control:view`：查看页面、状态、配置和连通性测试。
+- `device:control`：提交启动/停止申请。
+- `device:control:approve`：第二人复核，通过后才真正写 PLC。
+- `device:control:scope`：公司管理员配置公司子管理员可控制的设备范围。
+
+公司子管理员没有配置设备范围时，设备下拉框为空；公司管理员需要在远程控制页底部配置范围。
+
+## S7 网关驱动
+
+协议选择 `S7_GATEWAY` 时，平台按 HTTP 边缘网关协议访问：
+
+```text
+GET  /api/plc/read?address=100&unit=1
+POST /api/plc/write  {"address":100,"value":1,"unit":1}
+```
+
+读取返回 `{"value":1}`，写入返回 `{"ok":true}`。网关由现场集成商提供，平台不直接暴露 S7 PLC。

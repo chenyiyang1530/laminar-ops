@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.laminar.ops.biz.control.ControlDriver;
 import com.laminar.ops.biz.control.DeviceControlConfig;
 import com.laminar.ops.biz.control.ModbusTcpDriver;
+import com.laminar.ops.biz.control.S7GatewayDriver;
 import com.laminar.ops.biz.control.SimulatorDriver;
 import com.laminar.ops.common.BizException;
 import com.laminar.ops.security.AuthContext;
@@ -32,21 +33,87 @@ public class DeviceControlService {
     private final ObjectMapper objectMapper;
     private final Map<String, ControlDriver> drivers = Map.of(
             "SIMULATOR", new SimulatorDriver(),
-            "MODBUS_TCP", new ModbusTcpDriver()
+            "MODBUS_TCP", new ModbusTcpDriver(),
+            "S7_GATEWAY", new S7GatewayDriver()
     );
 
     public List<Map<String, Object>> equipmentOptions() {
         LoginUser user = AuthContext.require();
-        String sql = "select e.equipment_id as `value`, concat(e.equipment_name, ' · ', e.equipment_code) as `label`, " +
-                "e.equipment_code as `equipmentCode`, c.config_id as `configId`, c.protocol, c.enabled " +
-                "from biz_equipment e left join biz_device_control_config c on c.equipment_id=e.equipment_id where e.status='0' ";
+        String sql = "select e.equipment_id as `value`, e.equipment_name as `equipmentName`, " +
+                "e.equipment_code as `equipmentCode`, h.hospital_name as `hospitalName`, e.status as `equipmentStatus`, " +
+                "concat(e.equipment_name, ' · ', e.equipment_code) as `label`, " +
+                "c.config_id as `configId`, c.protocol, c.enabled " +
+                "from biz_equipment e left join biz_hospital h on h.hospital_id=e.hospital_id " +
+                "left join biz_device_control_config c on c.equipment_id=e.equipment_id where e.status='0' ";
         Long companyId = user.getCompanyId();
-        if (companyId != null) return jdbc.queryForList(sql + "and e.company_id=? order by e.equipment_name", companyId);
+        if (companyId != null) sql += "and e.company_id=? ";
+        if (isScopedSubAdmin(user)) {
+            List<Long> allowed = scopeIds(user.getUserId());
+            if (allowed.isEmpty()) return List.of();
+            sql += "and e.equipment_id in (" + allowed.stream().map(x -> "?").reduce((a, b) -> a + "," + b).orElse("") + ") ";
+            List<Object> args = new ArrayList<>();
+            if (companyId != null) args.add(companyId);
+            args.addAll(allowed);
+            return jdbc.queryForList(sql + "order by e.equipment_name", args.toArray());
+        }
+        if (companyId != null) return jdbc.queryForList(sql + "order by e.equipment_name", companyId);
         return jdbc.queryForList(sql + "order by e.equipment_name");
     }
 
+    public List<Map<String, Object>> scopeUsers() {
+        LoginUser user = AuthContext.require();
+        Long companyId = user.getCompanyId();
+        if (companyId == null) throw BizException.forbidden("只有公司管理员可以配置控制范围");
+        return jdbc.queryForList(
+                "select u.user_id as `userId`, u.username, u.nick_name as `nickName`, " +
+                        "count(s.equipment_id) as `equipmentCount` from sys_user u " +
+                        "join sys_user_role ur on ur.user_id=u.user_id join sys_role r on r.role_id=ur.role_id " +
+                        "left join biz_control_user_equipment s on s.user_id=u.user_id " +
+                        "where r.role_key='company_sub_admin' and u.company_id=? " +
+                        "group by u.user_id,u.username,u.nick_name order by u.user_id", companyId);
+    }
+
+    public Map<String, Object> scope(Long userId) {
+        LoginUser user = AuthContext.require();
+        Long companyId = user.getCompanyId();
+        if (companyId == null) throw BizException.forbidden("只有公司管理员可以配置控制范围");
+        Map<String, Object> target = requireCompanySubAdmin(userId, companyId);
+        target.put("equipmentIds", scopeIds(userId));
+        return target;
+    }
+
+    @Transactional
+    public void saveScope(Long userId, Map<String, Object> body) {
+        LoginUser user = AuthContext.require();
+        Long companyId = user.getCompanyId();
+        if (companyId == null) throw BizException.forbidden("只有公司管理员可以配置控制范围");
+        requireCompanySubAdmin(userId, companyId);
+        Object idsObj = body.get("equipmentIds");
+        List<Long> ids = new ArrayList<>();
+        if (idsObj instanceof List<?> list) {
+            for (Object id : list) {
+                Long equipmentId = longOf(id);
+                if (equipmentId != null) ids.add(equipmentId);
+            }
+        }
+        if (!ids.isEmpty()) {
+            Integer valid = jdbc.queryForObject(
+                    "select count(*) from biz_equipment where company_id=? and status='0' and equipment_id in (" +
+                            ids.stream().map(x -> "?").reduce((a, b) -> a + "," + b).orElse("") + ")",
+                    Integer.class, concat(companyId, ids));
+            if (valid == null || valid != ids.size()) throw BizException.badRequest("存在不属于本公司的设备");
+        }
+        jdbc.update("delete from biz_control_user_equipment where user_id=?", userId);
+        for (Long equipmentId : ids) {
+            jdbc.update("insert into biz_control_user_equipment(user_id,equipment_id,company_id,create_time) values(?,?,?,now())",
+                    userId, equipmentId, companyId);
+        }
+    }
+
     public Map<String, Object> config(Long equipmentId) {
-        ensureCompany(requireEquipment(equipmentId));
+        Map<String, Object> equipment = requireEquipment(equipmentId);
+        ensureCompany(equipment);
+        assertControlAllowed(AuthContext.require(), equipmentId);
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "select * from biz_device_control_config where equipment_id=?", equipmentId);
         if (rows.isEmpty()) return Map.of("configured", false);
@@ -70,6 +137,9 @@ public class DeviceControlService {
         }
         if ("MODBUS_TCP".equals(protocol) && str(body.get("host")).isBlank()) {
             throw BizException.badRequest("Modbus TCP 必须填写 PLC IP");
+        }
+        if ("S7_GATEWAY".equals(protocol) && str(body.get("host")).isBlank()) {
+            throw BizException.badRequest("S7 网关必须填写网关地址");
         }
         Integer start = intOf(body.get("startAddress"));
         Integer stop = intOf(body.get("stopAddress"));
@@ -105,7 +175,9 @@ public class DeviceControlService {
     }
 
     public Map<String, Object> status(Long equipmentId) {
-        ensureCompany(requireEquipment(equipmentId));
+        Map<String, Object> equipment = requireEquipment(equipmentId);
+        ensureCompany(equipment);
+        assertControlAllowed(AuthContext.require(), equipmentId);
         Map<String, Object> result = new LinkedHashMap<>();
         DeviceControlConfig cfg = findConfig(equipmentId);
         if (cfg == null) {
@@ -143,6 +215,7 @@ public class DeviceControlService {
         if (!cfg.enabled()) throw BizException.badRequest("远程控制未启用");
         Map<String, Object> equipment = requireEquipment(equipmentId);
         ensureCompany(equipment);
+        assertControlAllowed(user, equipmentId);
         if (!str(equipment.get("equipment_code")).equalsIgnoreCase(str(confirmText).trim())) {
             throw BizException.badRequest("确认文本必须与设备编码一致");
         }
@@ -155,16 +228,53 @@ public class DeviceControlService {
             jdbc.update("insert into biz_control_command(command_no,company_id,equipment_id,equipment_name,action,status," +
                             "request_id,reason,confirm_text,operator_id,operator_name,create_time) " +
                             "values(?,?,?,?,?,? ,?,?,?,?,?,now())",
-                    no, equipment.get("company_id"), equipmentId, equipment.get("equipment_name"), act, "PENDING",
+                    no, equipment.get("company_id"), equipmentId, equipment.get("equipment_name"), act, "PENDING_REVIEW",
                     requestId, reason, confirmText, user.getUserId(), user.getNickName());
         } catch (DuplicateKeyException e) {
             return toCommand(jdbc.queryForMap("select * from biz_control_command where request_id=?", requestId));
         }
         Long commandId = jdbc.queryForObject("select command_id from biz_control_command where request_id=?", Long.class, requestId);
+        return toCommand(jdbc.queryForMap("select * from biz_control_command where command_id=?", commandId));
+    }
+
+    /** 第二人复核：复核人不能是发起人，只有复核通过才真正写 PLC。 */
+    public Map<String, Object> reviewCommand(Long commandId, boolean pass, String remark, String reviewConfirmText) {
+        LoginUser user = AuthContext.require();
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select * from biz_control_command where command_id=?", commandId);
+        if (rows.isEmpty()) throw BizException.badRequest("控制命令不存在");
+        Map<String, Object> command = rows.get(0);
+        assertCompany(command.get("company_id") == null ? null
+                : ((Number) command.get("company_id")).longValue());
+        if (!"PENDING_REVIEW".equals(String.valueOf(command.get("status")))) {
+            throw BizException.badRequest("命令不在待复核状态");
+        }
+        if (String.valueOf(command.get("operator_id")).equals(String.valueOf(user.getUserId()))) {
+            throw BizException.forbidden("发起人不能复核自己的命令");
+        }
+        Long equipmentId = ((Number) command.get("equipment_id")).longValue();
+        assertControlAllowed(user, equipmentId);
+        if (!pass) {
+            jdbc.update("update biz_control_command set status='REJECTED',review_by=?,review_time=now(),review_remark=?,finish_time=now() where command_id=?",
+                    user.getNickName(), remark, commandId);
+            return toCommand(jdbc.queryForMap("select * from biz_control_command where command_id=?", commandId));
+        }
+        if (!"CONFIRM".equalsIgnoreCase(str(reviewConfirmText).trim())) {
+            throw BizException.badRequest("复核确认文本必须为 CONFIRM");
+        }
+        jdbc.update("update biz_control_command set status='APPROVED',review_by=?,review_time=now(),review_remark=? where command_id=?",
+                user.getNickName(), remark, commandId);
+        runApprovedCommand(commandId, equipmentId, String.valueOf(command.get("action")));
+        return toCommand(jdbc.queryForMap("select * from biz_control_command where command_id=?", commandId));
+    }
+
+    private void runApprovedCommand(Long commandId, Long equipmentId, String act) {
+        DeviceControlConfig cfg = findConfig(equipmentId);
+        if (cfg == null) throw BizException.badRequest("设备尚未配置远程控制");
         try {
             ControlDriver driver = driver(cfg.protocol());
             Map<String, Object> before = readStatus(cfg, driver);
-            jdbc.update("update biz_control_command set before_status=?,after_status=? where command_id=?",
+            jdbc.update("update biz_control_command set before_status=?,interlock_snapshot=? where command_id=?",
                     json(before), json(before), commandId);
             if ("START".equals(act)) {
                 Integer local = read(cfg, driver, cfg.localRemoteAddress());
@@ -198,14 +308,41 @@ public class DeviceControlService {
             jdbc.update("update biz_control_command set status='FAILED',error_message=?,finish_time=now() where command_id=?",
                     e.getMessage(), commandId);
         }
-        return toCommand(jdbc.queryForMap("select * from biz_control_command where command_id=?", commandId));
+    }
+
+    public Map<String, Object> testConnection(Long equipmentId) {
+        DeviceControlConfig cfg = findConfig(equipmentId);
+        if (cfg == null) throw BizException.badRequest("设备尚未配置远程控制");
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("protocol", cfg.protocol());
+        result.put("host", cfg.host());
+        result.put("port", cfg.port());
+        try {
+            ControlDriver driver = driver(cfg.protocol());
+            result.put("values", readStatus(cfg, driver));
+            result.put("ok", true);
+        } catch (Exception e) {
+            result.put("ok", false);
+            result.put("error", e.getMessage());
+        }
+        return result;
+    }
+
+    private void assertCompany(Long companyId) {
+        Long current = AuthContext.require().getCompanyId();
+        if (current != null && (companyId == null || !current.equals(companyId))) {
+            throw BizException.forbidden("无权操作其他公司的控制命令");
+        }
     }
 
     public List<Map<String, Object>> history(Long equipmentId, int limit) {
-        ensureCompany(requireEquipment(equipmentId));
+        Map<String, Object> equipment = requireEquipment(equipmentId);
+        ensureCompany(equipment);
+        assertControlAllowed(AuthContext.require(), equipmentId);
         return jdbc.queryForList(
                 "select command_id as `commandId`, command_no as `commandNo`, action, status, reason, operator_name as `operatorName`, " +
-                        "before_status as `beforeStatus`, after_status as `afterStatus`, error_message as `errorMessage`, " +
+                        "review_by as `reviewBy`, review_remark as `reviewRemark`, before_status as `beforeStatus`, " +
+                        "after_status as `afterStatus`, interlock_snapshot as `interlockSnapshot`, error_message as `errorMessage`, " +
                         "date_format(create_time,'%Y-%m-%d %H:%i:%s') as `createTime` " +
                         "from biz_control_command where equipment_id=? order by command_id desc limit ?", equipmentId, limit);
     }
@@ -246,6 +383,37 @@ public class DeviceControlService {
         if (equipmentCompany == null || !companyId.equals(((Number) equipmentCompany).longValue())) {
             throw BizException.forbidden("无权操作其他公司的设备");
         }
+    }
+
+    private boolean isScopedSubAdmin(LoginUser user) {
+        return user.getRoleKeys() != null && user.getRoleKeys().contains("company_sub_admin")
+                && !user.getRoleKeys().contains("company_admin") && !user.isSuperAdmin();
+    }
+
+    private List<Long> scopeIds(Long userId) {
+        return jdbc.queryForList("select equipment_id from biz_control_user_equipment where user_id=?", Long.class, userId);
+    }
+
+    private Map<String, Object> requireCompanySubAdmin(Long userId, Long companyId) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select u.user_id as `userId`, u.username, u.nick_name as `nickName` from sys_user u " +
+                        "join sys_user_role ur on ur.user_id=u.user_id join sys_role r on r.role_id=ur.role_id " +
+                        "where u.user_id=? and u.company_id=? and r.role_key='company_sub_admin'", userId, companyId);
+        if (rows.isEmpty()) throw BizException.badRequest("目标用户不是本公司子管理员");
+        return new LinkedHashMap<>(rows.get(0));
+    }
+
+    private void assertControlAllowed(LoginUser user, Long equipmentId) {
+        if (isScopedSubAdmin(user) && !scopeIds(user.getUserId()).contains(equipmentId)) {
+            throw BizException.forbidden("该设备不在您的可控制范围内");
+        }
+    }
+
+    private Object[] concat(Long companyId, List<Long> ids) {
+        List<Object> result = new ArrayList<>();
+        result.add(companyId);
+        result.addAll(ids);
+        return result.toArray();
     }
 
     private DeviceControlConfig findConfig(Long equipmentId) {
@@ -297,8 +465,11 @@ public class DeviceControlService {
         map.put("status", row.get("status"));
         map.put("reason", row.get("reason"));
         map.put("operatorName", row.get("operator_name"));
+        map.put("reviewBy", row.get("review_by"));
+        map.put("reviewRemark", row.get("review_remark"));
         map.put("beforeStatus", row.get("before_status"));
         map.put("afterStatus", row.get("after_status"));
+        map.put("interlockSnapshot", row.get("interlock_snapshot"));
         map.put("errorMessage", row.get("error_message"));
         return map;
     }

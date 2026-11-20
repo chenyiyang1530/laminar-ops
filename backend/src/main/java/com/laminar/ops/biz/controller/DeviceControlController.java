@@ -57,6 +57,40 @@ public class DeviceControlController {
                 (String) body.get("confirmText")));
     }
 
+    @PostMapping("/command/{commandId}/review")
+    @Perm("device:control:approve")
+    public Result<Map<String, Object>> reviewCommand(@PathVariable Long commandId,
+                                                     @RequestBody Map<String, Object> body) {
+        boolean pass = body.get("pass") == null || Boolean.parseBoolean(String.valueOf(body.get("pass")));
+        return Result.ok(controlService.reviewCommand(commandId, pass,
+                (String) body.get("remark"), (String) body.get("confirmText")));
+    }
+
+    @GetMapping("/test/{equipmentId}")
+    @Perm("device:control:view")
+    public Result<Map<String, Object>> test(@PathVariable Long equipmentId) {
+        return Result.ok(controlService.testConnection(equipmentId));
+    }
+
+    @GetMapping("/scope/users")
+    @Perm("device:control:scope")
+    public Result<List<Map<String, Object>>> scopeUsers() {
+        return Result.ok(controlService.scopeUsers());
+    }
+
+    @GetMapping("/scope/{userId}")
+    @Perm("device:control:scope")
+    public Result<Map<String, Object>> scope(@PathVariable Long userId) {
+        return Result.ok(controlService.scope(userId));
+    }
+
+    @PostMapping("/scope/{userId}")
+    @Perm("device:control:scope")
+    public Result<Void> saveScope(@PathVariable Long userId, @RequestBody Map<String, Object> body) {
+        controlService.saveScope(userId, body);
+        return Result.ok();
+    }
+
     @GetMapping("/history/{equipmentId}")
     @Perm("device:control:view")
     public Result<List<Map<String, Object>>> history(@PathVariable Long equipmentId,
