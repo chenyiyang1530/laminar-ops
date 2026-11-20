@@ -21,6 +21,7 @@ export const viewModules = {
   'login/index': () => import('../views/login/index.vue'),
   'message/index': () => import('../views/message/index.vue'),
   'monitor/cache/index': () => import('../views/monitor/cache/index.vue'),
+  'monitor/control/index': () => import('../views/monitor/control/index.vue'),
   'monitor/data/index': () => import('../views/monitor/data/index.vue'),
   'monitor/server/index': () => import('../views/monitor/server/index.vue'),
   'monitor/system/index': () => import('../views/monitor/system/index.vue'),

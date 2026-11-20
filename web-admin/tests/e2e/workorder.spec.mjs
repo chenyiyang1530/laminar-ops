@@ -92,7 +92,7 @@ test('登录 → 受理 → 派工 → 到场 → 完工 → 院方验收', asyn
   await expect(photoLink).toBeVisible()
   const signedHref = await photoLink.getAttribute('href')
   expect(signedHref).toContain('/api/common/signed-file')
-  const photo = await page.request.get(new URL(signedHref, 'http://127.0.0.1:8080').href)
+  const photo = await page.request.get(new URL(signedHref, page.url()).href)
   expect(photo.status()).toBe(200)
   await rejectDialog.getByRole('button', { name: '确认验收' }).click()
   await expect(page.getByText('验收已提交').first()).toBeVisible({ timeout: 10_000 })

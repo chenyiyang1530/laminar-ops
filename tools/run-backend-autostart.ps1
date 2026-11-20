@@ -3,6 +3,12 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $backend = Join-Path $root 'backend'
 $jar = Join-Path $backend 'target\laminar-ops-1.0.0.jar'
+$controlJar = Join-Path $backend 'target\laminar-ops-1.0.0-control.jar'
+$jarArg = 'target\laminar-ops-1.0.0.jar'
+if (Test-Path $controlJar) {
+    $jar = $controlJar
+    $jarArg = 'target\laminar-ops-1.0.0-control.jar'
+}
 $secretFile = Join-Path $root '.secrets.local'
 $logDir = Join-Path $root 'logs'
 $log = Join-Path $logDir 'autostart-app.log'
@@ -39,7 +45,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Redis8 启动失败' }
 while ($true) {
     Add-Content $log ("[{0}] starting backend" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
     $proc = Start-Process -FilePath $java `
-        -ArgumentList @('-jar', 'target\laminar-ops-1.0.0.jar', '--server.port=8080') `
+        -ArgumentList @('-jar', $jarArg, '--server.port=8080') `
         -WorkingDirectory $backend `
         -RedirectStandardOutput $log `
         -RedirectStandardError $err `
